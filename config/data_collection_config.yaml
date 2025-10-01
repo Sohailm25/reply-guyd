@@ -1,0 +1,103 @@
+# Data Collection Configuration
+# Based on gameplan.md and current_research.md insights
+
+collection:
+  # Target dataset size
+  target_pairs: 1000
+  min_pairs: 800
+  max_pairs: 1200
+  
+  # Collection strategy
+  tweets_per_query: 20
+  queries_per_day: 5
+  collection_days: 14
+  
+  # Search queries (rotate to get diverse topics)
+  search_queries:
+    - "AI OR artificial intelligence lang:en min_faves:200"
+    - "coding OR programming OR developer lang:en min_faves:200"
+    - "startup OR entrepreneur OR SaaS lang:en min_faves:200"
+    - "tech OR technology OR software lang:en min_faves:200"
+    - "python OR javascript OR typescript lang:en min_faves:200"
+    - "machine learning OR deep learning lang:en min_faves:200"
+    - "web development OR frontend OR backend lang:en min_faves:200"
+  
+  # Tweet filters (from gameplan.md: target 200-1000 likes)
+  tweet_filters:
+    min_likes: 200
+    max_likes: 2000
+    min_retweets: 10
+    max_retweets: 500
+    has_replies: true
+    is_retweet: false
+    is_quote: false
+    language: "en"
+  
+  # Reply filters (from gameplan.md: avoid celebrity/timing/media advantages)
+  reply_filters:
+    min_likes: 5  # High-engagement replies
+    max_likes: 1000  # Avoid viral outliers
+    min_retweets: 0
+    max_retweets: 50
+    
+    # Author filters (avoid celebrity effect)
+    min_follower_count: 500  # Avoid bots
+    max_follower_count: 100000  # Avoid celebrities
+    verified: null  # Don't filter by verification
+    
+    # Timing filter (from gameplan.md: avoid first 5 min advantage)
+    min_time_delay_seconds: 300  # 5 minutes after original tweet
+    max_time_delay_seconds: 86400  # 24 hours max
+    
+    # Content filters
+    max_length: 280
+    min_length: 30
+    has_media: false  # Can't replicate media-based success
+    has_urls: false  # URLs often drive engagement we can't replicate
+    has_hashtags: null  # Allow hashtags
+    
+  # Quality filters
+  quality:
+    min_language_confidence: 0.8
+    max_toxicity_score: 0.3
+    remove_duplicates: true
+    semantic_similarity_threshold: 0.9  # For deduplication
+
+# Apify Configuration
+apify:
+  actor_id: "apidojo/tweet-scraper"
+  max_tweets: 1000
+  timeout_seconds: 300
+  proxy_config:
+    useApifyProxy: true
+    apifyProxyGroups: ["RESIDENTIAL"]
+  
+# Scraping Configuration (fallback/alternative)
+scraping:
+  use_proxies: true
+  proxy_rotation: true
+  rate_limit_delay: 2  # seconds between requests
+  max_retries: 3
+  timeout: 30
+  user_agents_rotation: true
+  
+# Data Storage
+storage:
+  raw_data_dir: "data/raw"
+  processed_data_dir: "data/processed"
+  cache_dir: "data/cache"
+  
+  # File formats
+  save_format: "jsonl"  # One JSON object per line
+  compression: "gzip"
+  
+  # Checkpointing (resume interrupted collections)
+  checkpoint_enabled: true
+  checkpoint_frequency: 50  # Save after every 50 tweets collected
+  
+# Logging
+logging:
+  level: "INFO"
+  log_file: "output/logs/data_collection.log"
+  console_output: true
+

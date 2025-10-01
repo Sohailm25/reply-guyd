@@ -1,0 +1,80 @@
+# Core ML Libraries
+torch>=2.0.0
+transformers>=4.51.0  # Required for Qwen3 support
+peft>=0.7.0  # LoRA implementation
+bitsandbytes>=0.41.0  # QLoRA 4-bit quantization
+accelerate>=0.21.0
+datasets>=2.14.0
+sentencepiece>=0.1.99
+protobuf>=3.20.0
+safetensors>=0.4.0
+
+# Training & Experiment Tracking
+wandb>=0.15.0
+tensorboard>=2.14.0
+
+# Data Collection - Apify
+apify-client>=1.6.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# Data Collection - Scraping (twscrape alternative)
+httpx>=0.24.1
+beautifulsoup4>=4.12.0
+lxml>=4.9.3
+playwright>=1.40.0  # For JavaScript rendering if needed
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+tqdm>=4.66.0
+jsonlines>=4.0.0
+
+# Text Processing & NLP
+sentence-transformers>=2.2.0
+nltk>=3.8.1
+spacy>=3.6.0
+langdetect>=1.0.9
+
+# Quality Filtering
+detoxify>=0.5.2  # Toxicity detection
+emoji>=2.8.0
+
+# Evaluation
+scikit-learn>=1.3.0
+scipy>=1.11.0
+rouge-score>=0.1.2
+bert-score>=0.3.13
+
+# LLM APIs for Evaluation
+anthropic>=0.18.0  # Claude API
+openai>=1.12.0  # GPT-4 if needed
+
+# Vector Storage (for RAG baseline)
+faiss-cpu>=1.7.4  # Use faiss-gpu if you have GPU support for FAISS
+chromadb>=0.4.0
+
+# Utilities
+python-dateutil>=2.8.2
+pytz>=2023.3
+pyyaml>=6.0
+
+# Development Tools
+pytest>=7.4.0
+pytest-cov>=4.1.0
+black>=23.7.0
+flake8>=6.1.0
+ipython>=8.14.0
+jupyter>=1.0.0
+ipywidgets>=8.1.0
+
+# Optional: Unsloth for 2x training speedup (install separately if compatible)
+# Install with: pip install "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"
+
+# Optional: vLLM for fast inference
+# vllm>=0.3.0
+
+# Optional: SGLang for deployment
+# sglang>=0.1.0
+
+

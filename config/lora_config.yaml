@@ -1,0 +1,141 @@
+# LoRA Training Configuration
+# Based on current_research.md best practices for small datasets
+
+model:
+  name: "Qwen3-8B"
+  path: "./"
+  tokenizer_path: "./"
+  
+  # QLoRA Quantization (from current_research.md: enables 8B models on consumer GPUs)
+  quantization:
+    load_in_4bit: true
+    bnb_4bit_compute_dtype: "bfloat16"
+    bnb_4bit_quant_type: "nf4"  # NormalFloat4
+    bnb_4bit_use_double_quant: true  # Nested quantization
+  
+  # Model settings
+  torch_dtype: "bfloat16"
+  device_map: "auto"
+  trust_remote_code: false
+
+# LoRA Configuration
+lora:
+  # From current_research.md: rank=8-16 for 800-1,500 examples
+  rank: 16
+  alpha: 16  # Keep alpha = rank
+  dropout: 0.1  # 10% dropout for regularization
+  
+  # Target modules: ALL linear layers in Qwen3 (from implementation plan)
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+  
+  # LoRA settings
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  fan_in_fan_out: false
+  inference_mode: false
+
+# Training Hyperparameters
+training:
+  # Conservative settings for small datasets
+  num_epochs: 2  # Start with 2, reduce to 1 if overfitting
+  learning_rate: 2.0e-4
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  
+  # Batch sizes (effective batch size = per_device * grad_accum * num_gpus)
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 4  # Effective batch size = 16
+  
+  # Optimizer
+  optim: "adamw_torch"
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-8
+  
+  # Learning rate scheduler
+  lr_scheduler_type: "cosine"
+  
+  # Mixed precision
+  bf16: true
+  fp16: false
+  
+  # Gradient checkpointing (saves memory)
+  gradient_checkpointing: true
+  
+# Data Processing
+data:
+  max_length: 512  # Token length
+  train_split: 0.9
+  eval_split: 0.1
+  seed: 42
+  
+  # Qwen3 specific
+  enable_thinking: false  # Use non-thinking mode for faster training
+  add_generation_prompt: false
+  
+  # Data augmentation (optional)
+  augmentation:
+    enabled: false
+    techniques:
+      - "synonym_replacement"
+      - "random_insertion"
+
+# Evaluation Strategy
+evaluation:
+  strategy: "steps"
+  eval_steps: 50  # Frequent evaluation for small datasets
+  logging_steps: 10
+  save_steps: 50
+  save_total_limit: 3
+  
+  # Early stopping (from implementation plan)
+  early_stopping:
+    enabled: true
+    patience: 3  # Stop if no improvement for 3 evaluations
+    threshold: 0.01
+  
+  # Best model selection
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+  greater_is_better: false
+
+# Output
+output:
+  output_dir: "./output/models/lora-v1"
+  logging_dir: "./output/logs/lora-v1"
+  
+  # Checkpointing
+  save_safetensors: true
+  save_only_model: false
+
+# Weights & Biases
+wandb:
+  enabled: true
+  project: "qwen3-twitter-lora"
+  name: "lora-v1"
+  entity: null  # Set to your wandb username
+  
+  # What to log
+  log_model: true
+  watch: "all"  # Watch gradients and parameters
+  
+# Reproducibility
+reproducibility:
+  seed: 42
+  deterministic: false  # True for full reproducibility but slower
+
+# Overfitting Detection Thresholds
+overfitting_detection:
+  max_train_eval_gap: 0.3
+  min_eval_loss: 0.05
+  max_eval_loss: 2.0
+
