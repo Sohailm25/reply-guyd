@@ -7,7 +7,44 @@ base_model:
 - Qwen/Qwen3-8B-Base
 ---
 
-# Qwen3-8B
+# 🎯 Polychromic LoRA Fine-Tuning Project
+
+**Research-grade implementation of diversity-aware Twitter reply generation using Qwen3-8B**
+
+## 📚 Documentation
+
+All project documentation has been organized in [`docs/`](docs/):
+
+### Quick Links
+- **📖 [Documentation Index](docs/README.md)** - Complete documentation organization
+- **🚀 [Getting Started](docs/setup-guides/GETTING_STARTED.md)** - Setup guide
+- **☁️ [RunPod Training](docs/runpod-training/RUNPOD_QUICKSTART.md)** - Train models on cloud GPU
+- **📊 [Project Status](docs/project-status/PROJECT_STATUS.md)** - Current phase & progress
+- **🔬 [Research Methodology](docs/implementation/RESEARCH_IMPLEMENTATION.md)** - Arxiv-quality implementation
+- **📋 [Quick Reference](docs/reference/QUICK_REFERENCE.md)** - Common commands
+
+### Project Structure
+```
+├── docs/               # All documentation (organized by category)
+├── src/               # Source code (training, evaluation, data collection)
+├── scripts/           # Executable scripts (training, evaluation, testing)
+├── config/            # Configuration files (experiments, data collection)
+├── data/              # Data directory (processed, raw, cache)
+├── output/            # Training outputs (models, logs, figures)
+└── notebooks/         # Jupyter notebooks for analysis
+```
+
+### What This Project Does
+1. **Collects high-quality Twitter reply data** with rigorous filtering
+2. **Trains two models:** Standard LoRA baseline + Polychromic (diversity-aware)
+3. **Evaluates comprehensively:** Diversity metrics, quality metrics, statistical tests, LLM-as-judge
+4. **Generates publication-ready results** for Arxiv submission
+
+**See [`docs/implementation/IMPLEMENTATION_COMPLETE.md`](docs/implementation/IMPLEMENTATION_COMPLETE.md) for complete status.**
+
+---
+
+# Qwen3-8B (Base Model Information)
 <a href="https://chat.qwen.ai/" target="_blank" style="margin: 2px;">
     <img alt="Chat" src="https://img.shields.io/badge/%F0%9F%92%9C%EF%B8%8F%20Qwen%20Chat%20-536af5" style="display: inline-block; vertical-align: middle;"/>
 </a>

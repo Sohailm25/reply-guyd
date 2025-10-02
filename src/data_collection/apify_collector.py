@@ -54,6 +54,9 @@ class ApifyCollector:
         self.checkpoint_file = self.raw_data_dir / "collection_checkpoint.json"
         self.checkpoint_enabled = self.config["storage"]["checkpoint_enabled"]
         
+        # Global author diversity tracking (persists across all queries)
+        self.author_counts = {}
+        
         logger.info(f"Apify collector initialized with actor: {self.actor_id}")
     
     def collect_tweets_and_replies(
@@ -88,10 +91,12 @@ class ApifyCollector:
             logger.warning("No tweets passed filters. Consider adjusting tweet_filters in config.")
             return []
         
-        # Step 3: Collect replies for each tweet with author diversity tracking
+        # Step 3: Collect replies for each tweet with GLOBAL author diversity tracking
         tweet_reply_pairs = []
-        author_counts = {}  # Track replies per author to prevent bot farms
         max_per_author = self.config["collection"]["reply_filters"].get("max_replies_per_author", 10)
+        
+        # Log current author diversity state
+        logger.info(f"Author diversity tracking: {len(self.author_counts)} unique authors already tracked, {sum(self.author_counts.values())} total replies")
         
         for idx, tweet in enumerate(tweets):
             logger.info(f"Processing tweet {idx+1}/{len(tweets)}: {tweet['id']}")
@@ -105,19 +110,29 @@ class ApifyCollector:
             # Filter high-engagement replies
             filtered_replies = self._filter_replies(replies, tweet)
             
-            # Create pairs with author diversity enforcement
+            # Create pairs with GLOBAL author diversity enforcement
             added_for_tweet = 0
             for reply in filtered_replies:
-                author_id = reply.get("author", {}).get("id") or reply.get("author", {}).get("username", "unknown")
+                # Extract author identifier - prefer ID over screen_name
+                author_id_field = reply.get("author", {}).get("id", "")
+                author_screen_name = reply.get("author", {}).get("screen_name", "")
                 
-                # Check author limit
-                if author_counts.get(author_id, 0) >= max_per_author:
-                    logger.debug(f"Skipping reply from {author_id} (already have {author_counts[author_id]} replies)")
+                # Use author ID if available, else screen_name, else "unknown"
+                if author_id_field:
+                    author_id = f"id_{author_id_field}"
+                elif author_screen_name:
+                    author_id = author_screen_name
+                else:
+                    author_id = "unknown"
+                
+                # Check GLOBAL author limit (tracked across all queries)
+                if self.author_counts.get(author_id, 0) >= max_per_author:
+                    logger.debug(f"Skipping reply from {author_id} (already have {self.author_counts[author_id]} replies globally)")
                     continue
                 
                 pair = self._create_training_pair(tweet, reply)
                 tweet_reply_pairs.append(pair)
-                author_counts[author_id] = author_counts.get(author_id, 0) + 1
+                self.author_counts[author_id] = self.author_counts.get(author_id, 0) + 1
                 added_for_tweet += 1
             
             logger.info(f"Found {len(filtered_replies)} high-quality replies ({added_for_tweet} added, {len(filtered_replies) - added_for_tweet} skipped for author diversity)")
@@ -129,7 +144,7 @@ class ApifyCollector:
             # Rate limiting (be respectful to Apify)
             time.sleep(2)
         
-        logger.info(f"Collection complete: {len(tweet_reply_pairs)} training pairs from {len(author_counts)} unique authors")
+        logger.info(f"Collection complete: {len(tweet_reply_pairs)} training pairs from {len(self.author_counts)} unique authors (GLOBAL)")
         return tweet_reply_pairs
     
     def _collect_main_tweets(self, search_query: str, max_tweets: int) -> List[Dict]:
@@ -510,17 +525,33 @@ class ApifyCollector:
             0
         )
         
+        # Extract author identifier - try many possible fields
+        author_id_str = (
+            user_obj.get("id_str") or           # Twitter API format
+            user_obj.get("id") or               # Numeric ID
+            raw_tweet.get("authorId") or        # Apify might use this
+            raw_tweet.get("author_id") or       # Alternative format
+            ""
+        )
+        
+        # Extract screen_name/username - try all possible fields
+        screen_name = (
+            user_obj.get("screen_name") or
+            user_obj.get("username") or
+            user_obj.get("name") or
+            raw_tweet.get("username") or
+            raw_tweet.get("author_name") or
+            ""
+        )
+        
         # Debug logging for first few tweets to understand structure
-        if followers_count == 0 and not hasattr(self, '_logged_follower_debug'):
-            logger.info(f"⚠️  DEBUG: Follower count is 0. Analyzing raw data structure...")
-            logger.info(f"   Top-level keys: {list(raw_tweet.keys())}")
-            if 'user' in raw_tweet:
-                logger.info(f"   'user' keys: {list(raw_tweet['user'].keys())}")
-                logger.info(f"   'user' sample data: {str(raw_tweet['user'])[:200]}")
-            if 'author' in raw_tweet:
-                logger.info(f"   'author' keys: {list(raw_tweet['author'].keys())}")
-                logger.info(f"   'author' sample data: {str(raw_tweet['author'])[:200]}")
-            self._logged_follower_debug = True
+        if not hasattr(self, '_logged_author_debug'):
+            logger.info(f"📊 DEBUG: Analyzing Apify data structure...")
+            logger.info(f"   Top-level keys: {list(raw_tweet.keys())[:15]}")  # First 15 keys
+            if user_obj:
+                logger.info(f"   User object keys: {list(user_obj.keys())[:10]}")
+                logger.info(f"   Extracted - screen_name: '{screen_name}', id: '{author_id_str}', followers: {followers_count}")
+            self._logged_author_debug = True
         
         return {
             "id": raw_tweet.get("id") or raw_tweet.get("id_str") or raw_tweet.get("tweetId"),
@@ -531,7 +562,8 @@ class ApifyCollector:
             "reply_count": raw_tweet.get("reply_count") or raw_tweet.get("replyCount", 0),
             "has_media": bool(raw_tweet.get("entities", {}).get("media") or raw_tweet.get("media")),
             "author": {
-                "screen_name": user_obj.get("screen_name") or user_obj.get("username") or raw_tweet.get("username", ""),
+                "id": str(author_id_str) if author_id_str else "",  # Author ID for diversity tracking
+                "screen_name": screen_name,                          # Username (may be empty)
                 "followers_count": followers_count,
                 "verified": user_obj.get("verified") or user_obj.get("isVerified") or raw_tweet.get("isVerified", False),
             },
@@ -539,12 +571,14 @@ class ApifyCollector:
         }
     
     def _save_checkpoint(self, data: List[Dict], query_idx: int = 0, processed_queries: List[str] = None):
-        """Save collection checkpoint with actual data"""
+        """Save collection checkpoint with actual data INCLUDING global author diversity tracking"""
         checkpoint = {
             "timestamp": datetime.utcnow().isoformat(),
             "pairs_collected": len(data),
             "current_query_idx": query_idx,
             "processed_queries": processed_queries or [],
+            "author_counts": self.author_counts,  # CRITICAL: Save global author tracking
+            "unique_authors": len(self.author_counts),
         }
         
         # Save checkpoint metadata
@@ -557,10 +591,10 @@ class ApifyCollector:
             for pair in data:
                 f.write(json.dumps(pair) + "\n")
         
-        logger.info(f"Checkpoint saved: {len(data)} pairs (query {query_idx})")
+        logger.info(f"Checkpoint saved: {len(data)} pairs (query {query_idx}), {len(self.author_counts)} unique authors globally")
     
     def _load_checkpoint(self) -> tuple:
-        """Load checkpoint if exists
+        """Load checkpoint if exists INCLUDING global author diversity tracking
         
         Returns:
             (existing_data, query_idx, processed_queries)
@@ -572,6 +606,9 @@ class ApifyCollector:
             # Load checkpoint metadata
             with open(self.checkpoint_file, "r") as f:
                 checkpoint = json.load(f)
+            
+            # CRITICAL: Restore global author diversity tracking
+            self.author_counts = checkpoint.get("author_counts", {})
             
             # Load actual data
             checkpoint_data_file = self.checkpoint_file.parent / "checkpoint_data.jsonl"
@@ -585,7 +622,7 @@ class ApifyCollector:
             query_idx = checkpoint.get("current_query_idx", 0)
             processed_queries = checkpoint.get("processed_queries", [])
             
-            logger.info(f"Checkpoint loaded: {len(existing_data)} pairs, resuming from query {query_idx}")
+            logger.info(f"Checkpoint loaded: {len(existing_data)} pairs, {len(self.author_counts)} unique authors, resuming from query {query_idx}")
             return existing_data, query_idx, processed_queries
         
         except Exception as e:
@@ -603,6 +640,13 @@ class ApifyCollector:
             logger.info("Checkpoint files cleared")
         except Exception as e:
             logger.warning(f"Failed to clear checkpoint: {e}")
+    
+    def reset_author_tracking(self):
+        """Reset global author diversity tracking (use with caution!)"""
+        old_count = len(self.author_counts)
+        self.author_counts = {}
+        logger.warning(f"Author tracking reset! Cleared {old_count} authors from tracking.")
+        return old_count
     
     def save_to_file(self, data: List[Dict], filename: str = None):
         """Save collected data to file"""

@@ -77,4 +77,9 @@ ipywidgets>=8.1.0
 # Optional: SGLang for deployment
 # sglang>=0.1.0
 
+# Additional dependencies for polychromic training
+matplotlib>=3.7.0  # Visualizations
+seaborn>=0.12.0  # Statistical plots
+plotly>=5.14.0  # Interactive visualizations
+
 
