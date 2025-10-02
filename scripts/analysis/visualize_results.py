@@ -35,50 +35,50 @@ plt.rcParams['axes.titlesize'] = 16
 
 
 def plot_diversity_comparison(diversity_data: dict, output_path: Path):
-    """Create diversity metrics comparison bar chart."""
+    """Create diversity metrics comparison bar chart (handles variable number of models)."""
     logger.info("Creating diversity comparison plot...")
     
-    baseline = diversity_data['baseline']
-    polychromic = diversity_data['polychromic']
+    model_names = list(diversity_data.keys())
+    n_models = len(model_names)
     
-    # Prepare data
+    # Prepare data - each metric gets values from all models
     metrics = {
-        'Self-BLEU\n(lower=better)': [baseline['self_bleu'], polychromic['self_bleu']],
-        'Distinct-2\n(higher=better)': [baseline['distinct_2'], polychromic['distinct_2']],
-        'Distinct-3\n(higher=better)': [baseline['distinct_3'], polychromic['distinct_3']],
-        'Semantic Diversity\n(higher=better)': [baseline['semantic_diversity'], polychromic['semantic_diversity']],
+        'Self-BLEU\n(lower=better)': [diversity_data[m]['self_bleu'] for m in model_names],
+        'Distinct-2\n(higher=better)': [diversity_data[m]['distinct_2'] for m in model_names],
+        'Distinct-3\n(higher=better)': [diversity_data[m]['distinct_3'] for m in model_names],
+        'Semantic Diversity\n(higher=better)': [diversity_data[m]['semantic_diversity'] for m in model_names],
     }
     
-    # Create figure
-    fig, ax = plt.subplots(figsize=(12, 6))
+    # Create figure (wider for more models)
+    fig, ax = plt.subplots(figsize=(max(12, 3*n_models), 6))
     
     x = np.arange(len(metrics))
-    width = 0.35
+    width = 0.8 / n_models  # Dynamic width based on number of models
     
-    baseline_values = [v[0] for v in metrics.values()]
-    polychromic_values = [v[1] for v in metrics.values()]
+    # Colors and patterns for up to 4 models
+    colors = ['#3498db', '#2ecc71', '#e74c3c', '#f39c12']
     
-    rects1 = ax.bar(x - width/2, baseline_values, width, label='Baseline', color='#3498db')
-    rects2 = ax.bar(x + width/2, polychromic_values, width, label='Polychromic', color='#e74c3c')
-    
-    ax.set_ylabel('Score')
-    ax.set_title('Diversity Metrics Comparison')
-    ax.set_xticks(x)
-    ax.set_xticklabels(metrics.keys())
-    ax.legend()
-    
-    # Add value labels on bars
-    def autolabel(rects):
+    for i, model_name in enumerate(model_names):
+        values = [metrics[metric][i] for metric in metrics.keys()]
+        offset = width * (i - n_models/2 + 0.5)
+        rects = ax.bar(x + offset, values, width, 
+                      label=model_name.replace('_', ' ').title(), 
+                      color=colors[i % len(colors)])
+        
+        # Add value labels on bars
         for rect in rects:
             height = rect.get_height()
             ax.annotate(f'{height:.3f}',
                        xy=(rect.get_x() + rect.get_width() / 2, height),
                        xytext=(0, 3),
                        textcoords="offset points",
-                       ha='center', va='bottom', fontsize=10)
+                       ha='center', va='bottom', fontsize=9)
     
-    autolabel(rects1)
-    autolabel(rects2)
+    ax.set_ylabel('Score')
+    ax.set_title(f'Diversity Metrics Comparison ({n_models} Models)')
+    ax.set_xticks(x)
+    ax.set_xticklabels(metrics.keys())
+    ax.legend()
     
     plt.tight_layout()
     plt.savefig(output_path / 'diversity_comparison.pdf', dpi=300, bbox_inches='tight')
@@ -89,40 +89,35 @@ def plot_diversity_comparison(diversity_data: dict, output_path: Path):
 
 
 def plot_passk_curves(passk_data: dict, output_path: Path):
-    """Create Pass@k curves."""
+    """Create Pass@k curves (handles variable number of models)."""
     logger.info("Creating Pass@k curves...")
     
-    model_a = passk_data['model_a']
-    model_b = passk_data['model_b']
+    model_names = list(passk_data.keys())
+    n_models = len(model_names)
     
-    k_values = sorted([int(k) for k in model_a.keys()])
-    baseline_scores = [model_a[str(k)] for k in k_values]
-    polychromic_scores = [model_b[str(k)] for k in k_values]
+    # Get k values from first model
+    k_values = sorted([int(k) for k in passk_data[model_names[0]].keys()])
     
     fig, ax = plt.subplots(figsize=(10, 6))
     
-    ax.plot(k_values, baseline_scores, 'o-', label='Baseline', linewidth=2, markersize=8, color='#3498db')
-    ax.plot(k_values, polychromic_scores, 's-', label='Polychromic', linewidth=2, markersize=8, color='#e74c3c')
+    colors = ['#3498db', '#2ecc71', '#e74c3c', '#f39c12']
+    markers = ['o', 's', '^', 'D']
+    
+    for i, model_name in enumerate(model_names):
+        scores = [passk_data[model_name][str(k)] for k in k_values]
+        ax.plot(k_values, scores, 
+               marker=markers[i % len(markers)], 
+               label=model_name.replace('_', ' ').title(), 
+               linewidth=2, 
+               markersize=8, 
+               color=colors[i % len(colors)])
     
     ax.set_xlabel('k (number of generations)')
     ax.set_ylabel('Pass@k Score')
-    ax.set_title('Pass@k Performance Comparison')
+    ax.set_title(f'Pass@k Performance Comparison ({n_models} Models)')
     ax.legend()
     ax.grid(True, alpha=0.3)
     ax.set_xticks(k_values)
-    
-    # Add improvement annotations
-    for i, k in enumerate(k_values):
-        improvement = polychromic_scores[i] - baseline_scores[i]
-        pct_improvement = (improvement / baseline_scores[i]) * 100 if baseline_scores[i] > 0 else 0
-        
-        mid_y = (baseline_scores[i] + polychromic_scores[i]) / 2
-        ax.annotate(f'+{pct_improvement:.1f}%',
-                   xy=(k, mid_y),
-                   xytext=(5, 0),
-                   textcoords='offset points',
-                   fontsize=10,
-                   color='green' if improvement > 0 else 'red')
     
     plt.tight_layout()
     plt.savefig(output_path / 'passk_curves.pdf', dpi=300, bbox_inches='tight')
@@ -211,7 +206,7 @@ def plot_statistical_significance(stats_data: dict, output_path: Path):
 
 
 def create_summary_table(evaluation_dir: Path, output_path: Path):
-    """Create summary table for paper."""
+    """Create summary table for paper (handles variable number of models)."""
     logger.info("Creating summary table...")
     
     # Load all results
@@ -219,7 +214,9 @@ def create_summary_table(evaluation_dir: Path, output_path: Path):
     quality = json.load(open(evaluation_dir / 'quality_metrics.json'))
     passk = json.load(open(evaluation_dir / 'passk_results.json'))
     
-    # Create DataFrame
+    model_names = list(diversity.keys())
+    
+    # Create DataFrame with dynamic columns
     data = {
         'Metric': [
             'Self-BLEU ↓',
@@ -230,28 +227,22 @@ def create_summary_table(evaluation_dir: Path, output_path: Path):
             'Pass@1',
             'Pass@5',
             'Pass@10',
-        ],
-        'Baseline': [
-            f"{diversity['baseline']['self_bleu']:.3f}",
-            f"{diversity['baseline']['distinct_2']:.3f}",
-            f"{diversity['baseline']['distinct_3']:.3f}",
-            f"{diversity['baseline']['semantic_diversity']:.3f}",
-            f"{quality['baseline']['rouge']['rougeL']:.3f}",
-            f"{passk['model_a']['1']:.3f}",
-            f"{passk['model_a']['5']:.3f}",
-            f"{passk['model_a']['10']:.3f}",
-        ],
-        'Polychromic': [
-            f"{diversity['polychromic']['self_bleu']:.3f}",
-            f"{diversity['polychromic']['distinct_2']:.3f}",
-            f"{diversity['polychromic']['distinct_3']:.3f}",
-            f"{diversity['polychromic']['semantic_diversity']:.3f}",
-            f"{quality['polychromic']['rouge']['rougeL']:.3f}",
-            f"{passk['model_b']['1']:.3f}",
-            f"{passk['model_b']['5']:.3f}",
-            f"{passk['model_b']['10']:.3f}",
         ]
     }
+    
+    # Add column for each model
+    for model_name in model_names:
+        column_name = model_name.replace('_', ' ').title()
+        data[column_name] = [
+            f"{diversity[model_name]['self_bleu']:.3f}",
+            f"{diversity[model_name]['distinct_2']:.3f}",
+            f"{diversity[model_name]['distinct_3']:.3f}",
+            f"{diversity[model_name]['semantic_diversity']:.3f}",
+            f"{quality[model_name]['rouge']['rougeL']:.3f}",
+            f"{passk[model_name]['1']:.3f}",
+            f"{passk[model_name]['5']:.3f}",
+            f"{passk[model_name]['10']:.3f}",
+        ]
     
     df = pd.DataFrame(data)
     
@@ -259,7 +250,11 @@ def create_summary_table(evaluation_dir: Path, output_path: Path):
     df.to_csv(output_path / 'summary_table.csv', index=False)
     
     # Save as LaTeX
-    latex = df.to_latex(index=False, caption='Evaluation Results Comparison', label='tab:results')
+    latex = df.to_latex(
+        index=False, 
+        caption=f'Evaluation Results Comparison ({len(model_names)} Models)', 
+        label='tab:results'
+    )
     with open(output_path / 'summary_table.tex', 'w') as f:
         f.write(latex)
     
