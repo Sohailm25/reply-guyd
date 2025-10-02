@@ -10,6 +10,7 @@ import logging
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
+from email.utils import parsedate_to_datetime
 
 from apify_client import ApifyClient
 from dotenv import load_dotenv
@@ -76,11 +77,21 @@ class ApifyCollector:
         logger.info(f"Target: {max_tweets} tweets, up to {max_replies_per_tweet} replies each")
         
         # Step 1: Collect main tweets
-        tweets = self._collect_main_tweets(search_query, max_tweets)
-        logger.info(f"Collected {len(tweets)} main tweets")
+        raw_tweets = self._collect_main_tweets(search_query, max_tweets)
+        logger.info(f"Collected {len(raw_tweets)} raw tweets from Apify")
         
-        # Step 2: Collect replies for each tweet
+        # Step 2: Filter tweets based on quality criteria (including verification)
+        tweets = self._filter_main_tweets(raw_tweets)
+        logger.info(f"After filtering: {len(tweets)} tweets passed quality filters (verified, engagement, etc.)")
+        
+        if len(tweets) == 0:
+            logger.warning("No tweets passed filters. Consider adjusting tweet_filters in config.")
+            return []
+        
+        # Step 3: Collect replies for each tweet with author diversity tracking
         tweet_reply_pairs = []
+        author_counts = {}  # Track replies per author to prevent bot farms
+        max_per_author = self.config["collection"]["reply_filters"].get("max_replies_per_author", 10)
         
         for idx, tweet in enumerate(tweets):
             logger.info(f"Processing tweet {idx+1}/{len(tweets)}: {tweet['id']}")
@@ -94,12 +105,22 @@ class ApifyCollector:
             # Filter high-engagement replies
             filtered_replies = self._filter_replies(replies, tweet)
             
-            # Create pairs
+            # Create pairs with author diversity enforcement
+            added_for_tweet = 0
             for reply in filtered_replies:
+                author_id = reply.get("author", {}).get("id") or reply.get("author", {}).get("username", "unknown")
+                
+                # Check author limit
+                if author_counts.get(author_id, 0) >= max_per_author:
+                    logger.debug(f"Skipping reply from {author_id} (already have {author_counts[author_id]} replies)")
+                    continue
+                
                 pair = self._create_training_pair(tweet, reply)
                 tweet_reply_pairs.append(pair)
+                author_counts[author_id] = author_counts.get(author_id, 0) + 1
+                added_for_tweet += 1
             
-            logger.info(f"Found {len(filtered_replies)} high-quality replies")
+            logger.info(f"Found {len(filtered_replies)} high-quality replies ({added_for_tweet} added, {len(filtered_replies) - added_for_tweet} skipped for author diversity)")
             
             # Checkpoint
             if self.checkpoint_enabled and (idx + 1) % 10 == 0:
@@ -108,7 +129,7 @@ class ApifyCollector:
             # Rate limiting (be respectful to Apify)
             time.sleep(2)
         
-        logger.info(f"Collection complete: {len(tweet_reply_pairs)} training pairs")
+        logger.info(f"Collection complete: {len(tweet_reply_pairs)} training pairs from {len(author_counts)} unique authors")
         return tweet_reply_pairs
     
     def _collect_main_tweets(self, search_query: str, max_tweets: int) -> List[Dict]:
@@ -141,6 +162,78 @@ class ApifyCollector:
         except Exception as e:
             logger.error(f"Error collecting tweets via Apify: {e}")
             raise
+    
+    def _filter_main_tweets(self, tweets: List[Dict]) -> List[Dict]:
+        """Filter main tweets based on quality criteria (verified, engagement, etc.)"""
+        filters = self.config["collection"]["tweet_filters"]
+        filtered = []
+        
+        rejection_stats = {
+            "total": len(tweets),
+            "not_verified": 0,
+            "engagement_low": 0,
+            "engagement_high": 0,
+            "is_retweet": 0,
+            "is_quote": 0,
+            "no_replies": 0,
+            "passed": 0,
+        }
+        
+        for tweet in tweets:
+            # Verification filter (if required)
+            if filters.get("verified") == True:
+                is_verified = tweet.get("author", {}).get("verified", False)
+                if not is_verified:
+                    rejection_stats["not_verified"] += 1
+                    continue
+            
+            # Engagement filters
+            likes = tweet.get("favorite_count", 0)
+            retweets = tweet.get("retweet_count", 0)
+            
+            if likes < filters.get("min_likes", 0):
+                rejection_stats["engagement_low"] += 1
+                continue
+            if likes > filters.get("max_likes", float('inf')):
+                rejection_stats["engagement_high"] += 1
+                continue
+            
+            if retweets < filters.get("min_retweets", 0):
+                rejection_stats["engagement_low"] += 1
+                continue
+            if retweets > filters.get("max_retweets", float('inf')):
+                rejection_stats["engagement_high"] += 1
+                continue
+            
+            # Content type filters
+            if filters.get("is_retweet") == False and tweet.get("is_retweet", False):
+                rejection_stats["is_retweet"] += 1
+                continue
+            
+            if filters.get("is_quote") == False and tweet.get("is_quote", False):
+                rejection_stats["is_quote"] += 1
+                continue
+            
+            # Passed all filters
+            rejection_stats["passed"] += 1
+            filtered.append(tweet)
+        
+        # Log statistics
+        if rejection_stats["total"] > 0:
+            logger.info(f"\n📊 Tweet Filter Statistics ({rejection_stats['total']} total tweets):")
+            logger.info(f"  ✓ Passed all filters: {rejection_stats['passed']}")
+            if rejection_stats["not_verified"] > 0:
+                logger.info(f"  ✗ Not verified: {rejection_stats['not_verified']}")
+            if rejection_stats["engagement_low"] > 0:
+                logger.info(f"  ✗ Engagement too low: {rejection_stats['engagement_low']}")
+            if rejection_stats["engagement_high"] > 0:
+                logger.info(f"  ✗ Engagement too high: {rejection_stats['engagement_high']}")
+            if rejection_stats["is_retweet"] > 0:
+                logger.info(f"  ✗ Is retweet: {rejection_stats['is_retweet']}")
+            if rejection_stats["is_quote"] > 0:
+                logger.info(f"  ✗ Is quote: {rejection_stats['is_quote']}")
+        
+        return filtered
     
     def _collect_tweet_replies(self, tweet_id: str, max_replies: int = 50) -> List[Dict]:
         """
@@ -192,49 +285,156 @@ class ApifyCollector:
         filters = self.config["collection"]["reply_filters"]
         filtered = []
         
-        original_time = datetime.fromisoformat(original_tweet["created_at"].replace("Z", "+00:00"))
+        # Track rejection reasons for debugging
+        rejection_stats = {
+            "total": len(replies),
+            "no_date": 0,
+            "date_parse_error": 0,
+            "engagement_low": 0,
+            "engagement_high": 0,
+            "followers_low": 0,
+            "followers_high": 0,
+            "timing_too_fast": 0,
+            "timing_too_slow": 0,
+            "length_invalid": 0,
+            "has_media": 0,
+            "has_urls": 0,
+            "passed": 0,
+        }
         
-        for reply in replies:
-            # Engagement filter
+        # Parse original tweet timestamp (skip if invalid)
+        try:
+            if not original_tweet.get("created_at"):
+                logger.warning(f"Original tweet {original_tweet.get('id')} missing created_at, skipping replies")
+                return []
+            original_time = self._parse_twitter_date(original_tweet["created_at"])
+            if original_time is None:
+                logger.warning(f"Could not parse date for tweet {original_tweet.get('id')}")
+                return []
+        except Exception as e:
+            logger.warning(f"Error parsing date for tweet {original_tweet.get('id')}: {e}")
+            return []
+        
+        # Log original tweet details
+        logger.info("=" * 80)
+        logger.info("📝 ORIGINAL TWEET:")
+        logger.info(f"   Posted: {original_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        logger.info(f"   Likes: {original_tweet.get('favorite_count', 0)} | RTs: {original_tweet.get('retweet_count', 0)}")
+        tweet_text = original_tweet.get('full_text', '')[:150]
+        logger.info(f"   Text: {tweet_text}{'...' if len(original_tweet.get('full_text', '')) > 150 else ''}")
+        logger.info(f"\n📬 Processing {len(replies)} replies...")
+        logger.info("=" * 80)
+        
+        for idx, reply in enumerate(replies, 1):
+            # Get basic reply info for logging
+            full_text = reply.get("full_text", "")
+            reply_text = full_text[:100]
             likes = reply.get("favorite_count", 0)
-            if not (filters["min_likes"] <= likes <= filters["max_likes"]):
-                continue
-            
             retweets = reply.get("retweet_count", 0)
-            if not (filters["min_retweets"] <= retweets <= filters["max_retweets"]):
-                continue
+            followers = reply.get("author", {}).get("followers_count", 0)
+            
+            # Track rejection reason
+            rejection_reason = None
+            
+            # Engagement filter
+            if likes < filters["min_likes"]:
+                rejection_stats["engagement_low"] += 1
+                rejection_reason = f"❌ Likes too low ({likes} < {filters['min_likes']})"
+            elif likes > filters["max_likes"]:
+                rejection_stats["engagement_high"] += 1
+                rejection_reason = f"❌ Likes too high ({likes} > {filters['max_likes']})"
+            elif not (filters["min_retweets"] <= retweets <= filters["max_retweets"]):
+                rejection_stats["engagement_low"] += 1
+                rejection_reason = f"❌ RTs out of range ({retweets} not in [{filters['min_retweets']}, {filters['max_retweets']}])"
             
             # Author filters (avoid celebrity effect)
-            followers = reply.get("author", {}).get("followers_count", 0)
-            if followers < filters["min_follower_count"]:
-                continue  # Likely bot/spam
-            if followers > filters["max_follower_count"]:
-                continue  # Celebrity advantage
+            elif followers < filters["min_follower_count"]:
+                rejection_stats["followers_low"] += 1
+                rejection_reason = f"❌ Followers too low ({followers} < {filters['min_follower_count']})"
+            elif followers > filters["max_follower_count"]:
+                rejection_stats["followers_high"] += 1
+                rejection_reason = f"❌ Followers too high ({followers} > {filters['max_follower_count']})"
             
             # Timing filter (from gameplan.md: avoid first 5 min advantage)
-            reply_time = datetime.fromisoformat(reply["created_at"].replace("Z", "+00:00"))
-            time_diff = (reply_time - original_time).total_seconds()
+            else:
+                try:
+                    if not reply.get("created_at"):
+                        rejection_stats["no_date"] += 1
+                        rejection_reason = "❌ Missing timestamp"
+                    else:
+                        reply_time = self._parse_twitter_date(reply["created_at"])
+                        if reply_time is None:
+                            rejection_stats["date_parse_error"] += 1
+                            rejection_reason = "❌ Date parse error"
+                        else:
+                            time_diff = (reply_time - original_time).total_seconds()
+                            time_diff_hours = time_diff / 3600
+                            
+                            if time_diff < filters["min_time_delay_seconds"]:
+                                rejection_stats["timing_too_fast"] += 1
+                                rejection_reason = f"❌ Replied too fast ({time_diff/60:.1f}m < {filters['min_time_delay_seconds']/60}m)"
+                            elif time_diff > filters["max_time_delay_seconds"]:
+                                rejection_stats["timing_too_slow"] += 1
+                                rejection_reason = f"❌ Replied too slow ({time_diff_hours:.1f}h > {filters['max_time_delay_seconds']/3600}h)"
+                            else:
+                                # Content filters
+                                if not (filters["min_length"] <= len(full_text) <= filters["max_length"]):
+                                    rejection_stats["length_invalid"] += 1
+                                    rejection_reason = f"❌ Length invalid ({len(full_text)} not in [{filters['min_length']}, {filters['max_length']}])"
+                                elif filters["has_media"] is False and reply.get("has_media", False):
+                                    rejection_stats["has_media"] += 1
+                                    rejection_reason = "❌ Has media"
+                                elif filters["has_urls"] is False and ("http" in full_text.lower()):
+                                    rejection_stats["has_urls"] += 1
+                                    rejection_reason = "❌ Has URLs"
+                                else:
+                                    # Passed all filters!
+                                    rejection_stats["passed"] += 1
+                                    reply["time_diff_seconds"] = time_diff
+                                    filtered.append(reply)
+                                    
+                                    logger.info(f"\n  ✅ Reply #{idx} ACCEPTED:")
+                                    logger.info(f"     Posted: {reply_time.strftime('%Y-%m-%d %H:%M:%S UTC')} ({time_diff_hours:.1f}h after)")
+                                    logger.info(f"     Engagement: {likes} likes, {retweets} RTs | Author: {followers:,} followers")
+                                    logger.info(f"     Text: {reply_text}{'...' if len(reply.get('full_text', '')) > 100 else ''}")
+                                    continue
+                                    
+                except Exception as e:
+                    rejection_stats["date_parse_error"] += 1
+                    rejection_reason = f"❌ Date parsing error: {e}"
             
-            if time_diff < filters["min_time_delay_seconds"]:
-                continue  # Too fast, timing advantage
-            if time_diff > filters["max_time_delay_seconds"]:
-                continue  # Too late, might be off-topic
-            
-            # Content filters
-            text = reply.get("full_text", "")
-            
-            if not (filters["min_length"] <= len(text) <= filters["max_length"]):
-                continue
-            
-            if filters["has_media"] is False and reply.get("has_media", False):
-                continue  # Can't replicate media-based engagement
-            
-            if filters["has_urls"] is False and ("http" in text.lower()):
-                continue  # URLs drive engagement we can't replicate
-            
-            # Passed all filters
-            reply["time_diff_seconds"] = time_diff
-            filtered.append(reply)
+            # Log rejection (only show first 10 rejections to avoid spam)
+            if rejection_reason and idx <= 10:
+                logger.info(f"\n  Reply #{idx}: {rejection_reason}")
+                logger.info(f"     Likes: {likes}, RTs: {retweets}, Followers: {followers:,}")
+                logger.info(f"     Text: {reply_text}{'...' if len(reply.get('full_text', '')) > 100 else ''}")
+        
+        # Log rejection statistics
+        if rejection_stats["total"] > 0:
+            logger.info(f"Filter statistics for {rejection_stats['total']} replies:")
+            logger.info(f"  ✓ Passed all filters: {rejection_stats['passed']}")
+            if rejection_stats["engagement_low"] > 0:
+                logger.info(f"  ✗ Engagement too low: {rejection_stats['engagement_low']}")
+            if rejection_stats["engagement_high"] > 0:
+                logger.info(f"  ✗ Engagement too high: {rejection_stats['engagement_high']}")
+            if rejection_stats["followers_low"] > 0:
+                logger.info(f"  ✗ Followers too low (<{filters['min_follower_count']}): {rejection_stats['followers_low']}")
+            if rejection_stats["followers_high"] > 0:
+                logger.info(f"  ✗ Followers too high (>{filters['max_follower_count']}): {rejection_stats['followers_high']}")
+            if rejection_stats["timing_too_fast"] > 0:
+                logger.info(f"  ✗ Replied too fast (<{filters['min_time_delay_seconds']}s): {rejection_stats['timing_too_fast']}")
+            if rejection_stats["timing_too_slow"] > 0:
+                logger.info(f"  ✗ Replied too slow (>{filters['max_time_delay_seconds']}s): {rejection_stats['timing_too_slow']}")
+            if rejection_stats["length_invalid"] > 0:
+                logger.info(f"  ✗ Length invalid (not {filters['min_length']}-{filters['max_length']} chars): {rejection_stats['length_invalid']}")
+            if rejection_stats["has_media"] > 0:
+                logger.info(f"  ✗ Has media: {rejection_stats['has_media']}")
+            if rejection_stats["has_urls"] > 0:
+                logger.info(f"  ✗ Has URLs: {rejection_stats['has_urls']}")
+            if rejection_stats["no_date"] > 0:
+                logger.info(f"  ✗ Missing date: {rejection_stats['no_date']}")
+            if rejection_stats["date_parse_error"] > 0:
+                logger.info(f"  ✗ Date parse error: {rejection_stats['date_parse_error']}")
         
         return filtered
     
@@ -260,39 +460,149 @@ class ApifyCollector:
             "collected_at": datetime.utcnow().isoformat(),
         }
     
+    def _parse_twitter_date(self, date_string: str) -> Optional[datetime]:
+        """
+        Parse Twitter date in multiple formats
+        
+        Twitter uses: 'Thu Oct 02 07:11:55 +0000 2025' (RFC 2822)
+        ISO format: '2025-10-02T07:11:55+00:00'
+        """
+        if not date_string:
+            return None
+        
+        try:
+            # Try Twitter's native format first (RFC 2822)
+            # Example: 'Thu Oct 02 07:11:55 +0000 2025'
+            return parsedate_to_datetime(date_string)
+        except (ValueError, TypeError):
+            pass
+        
+        try:
+            # Try ISO format
+            return datetime.fromisoformat(date_string.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            pass
+        
+        # Could not parse
+        return None
+    
     def _normalize_tweet(self, raw_tweet: Dict) -> Dict:
         """
         Normalize Apify tweet format to consistent structure
         
         Different Apify actors may return different schemas
         """
+        # Handle various date field names Apify might return
+        created_at = (
+            raw_tweet.get("created_at") or 
+            raw_tweet.get("createdAt") or 
+            raw_tweet.get("timestamp") or
+            ""
+        )
+        
+        # Extract author info - try multiple field structures
+        user_obj = raw_tweet.get("user") or raw_tweet.get("author") or {}
+        followers_count = (
+            user_obj.get("followers") or        # Apify field (CORRECT!)
+            user_obj.get("followers_count") or  # Twitter API format
+            user_obj.get("followersCount") or   # Alternative camelCase
+            raw_tweet.get("followersCount") or  # Top-level field
+            0
+        )
+        
+        # Debug logging for first few tweets to understand structure
+        if followers_count == 0 and not hasattr(self, '_logged_follower_debug'):
+            logger.info(f"⚠️  DEBUG: Follower count is 0. Analyzing raw data structure...")
+            logger.info(f"   Top-level keys: {list(raw_tweet.keys())}")
+            if 'user' in raw_tweet:
+                logger.info(f"   'user' keys: {list(raw_tweet['user'].keys())}")
+                logger.info(f"   'user' sample data: {str(raw_tweet['user'])[:200]}")
+            if 'author' in raw_tweet:
+                logger.info(f"   'author' keys: {list(raw_tweet['author'].keys())}")
+                logger.info(f"   'author' sample data: {str(raw_tweet['author'])[:200]}")
+            self._logged_follower_debug = True
+        
         return {
-            "id": raw_tweet.get("id") or raw_tweet.get("id_str"),
+            "id": raw_tweet.get("id") or raw_tweet.get("id_str") or raw_tweet.get("tweetId"),
             "full_text": raw_tweet.get("full_text") or raw_tweet.get("text", ""),
-            "created_at": raw_tweet.get("created_at", ""),
-            "favorite_count": raw_tweet.get("favorite_count", 0),
-            "retweet_count": raw_tweet.get("retweet_count", 0),
-            "reply_count": raw_tweet.get("reply_count", 0),
-            "has_media": bool(raw_tweet.get("entities", {}).get("media")),
+            "created_at": created_at,
+            "favorite_count": raw_tweet.get("favorite_count") or raw_tweet.get("likeCount", 0),
+            "retweet_count": raw_tweet.get("retweet_count") or raw_tweet.get("retweetCount", 0),
+            "reply_count": raw_tweet.get("reply_count") or raw_tweet.get("replyCount", 0),
+            "has_media": bool(raw_tweet.get("entities", {}).get("media") or raw_tweet.get("media")),
             "author": {
-                "screen_name": raw_tweet.get("user", {}).get("screen_name", ""),
-                "followers_count": raw_tweet.get("user", {}).get("followers_count", 0),
-                "verified": raw_tweet.get("user", {}).get("verified", False),
+                "screen_name": user_obj.get("screen_name") or user_obj.get("username") or raw_tweet.get("username", ""),
+                "followers_count": followers_count,
+                "verified": user_obj.get("verified") or user_obj.get("isVerified") or raw_tweet.get("isVerified", False),
             },
             "raw": raw_tweet,  # Keep original for debugging
         }
     
-    def _save_checkpoint(self, data: List[Dict]):
-        """Save collection checkpoint"""
+    def _save_checkpoint(self, data: List[Dict], query_idx: int = 0, processed_queries: List[str] = None):
+        """Save collection checkpoint with actual data"""
         checkpoint = {
             "timestamp": datetime.utcnow().isoformat(),
             "pairs_collected": len(data),
+            "current_query_idx": query_idx,
+            "processed_queries": processed_queries or [],
         }
         
+        # Save checkpoint metadata
         with open(self.checkpoint_file, "w") as f:
             json.dump(checkpoint, f, indent=2)
         
-        logger.info(f"Checkpoint saved: {len(data)} pairs")
+        # Save actual data to checkpoint file
+        checkpoint_data_file = self.checkpoint_file.parent / "checkpoint_data.jsonl"
+        with open(checkpoint_data_file, "w") as f:
+            for pair in data:
+                f.write(json.dumps(pair) + "\n")
+        
+        logger.info(f"Checkpoint saved: {len(data)} pairs (query {query_idx})")
+    
+    def _load_checkpoint(self) -> tuple:
+        """Load checkpoint if exists
+        
+        Returns:
+            (existing_data, query_idx, processed_queries)
+        """
+        if not self.checkpoint_file.exists():
+            return [], 0, []
+        
+        try:
+            # Load checkpoint metadata
+            with open(self.checkpoint_file, "r") as f:
+                checkpoint = json.load(f)
+            
+            # Load actual data
+            checkpoint_data_file = self.checkpoint_file.parent / "checkpoint_data.jsonl"
+            existing_data = []
+            if checkpoint_data_file.exists():
+                with open(checkpoint_data_file, "r") as f:
+                    for line in f:
+                        if line.strip():
+                            existing_data.append(json.loads(line))
+            
+            query_idx = checkpoint.get("current_query_idx", 0)
+            processed_queries = checkpoint.get("processed_queries", [])
+            
+            logger.info(f"Checkpoint loaded: {len(existing_data)} pairs, resuming from query {query_idx}")
+            return existing_data, query_idx, processed_queries
+        
+        except Exception as e:
+            logger.warning(f"Failed to load checkpoint: {e}")
+            return [], 0, []
+    
+    def _clear_checkpoint(self):
+        """Clear checkpoint files after successful completion"""
+        try:
+            if self.checkpoint_file.exists():
+                self.checkpoint_file.unlink()
+            checkpoint_data_file = self.checkpoint_file.parent / "checkpoint_data.jsonl"
+            if checkpoint_data_file.exists():
+                checkpoint_data_file.unlink()
+            logger.info("Checkpoint files cleared")
+        except Exception as e:
+            logger.warning(f"Failed to clear checkpoint: {e}")
     
     def save_to_file(self, data: List[Dict], filename: str = None):
         """Save collected data to file"""

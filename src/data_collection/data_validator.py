@@ -38,6 +38,19 @@ class DataValidator:
         self.min_language_confidence = self.config.get("min_language_confidence", 0.8)
         self.max_toxicity_score = self.config.get("max_toxicity_score", 0.3)
         
+        # NEW: Substantive content filters
+        self.min_engagement = self.config.get("min_engagement_for_validation", 3)
+        self.min_unique_words = self.config.get("min_unique_words", 8)
+        self.max_generic_ratio = self.config.get("max_generic_phrase_ratio", 0.5)
+        self.crypto_spam_keywords = self.config.get("crypto_spam_keywords", [])
+        
+        # Generic phrases that indicate low-quality engagement farming
+        self.generic_phrases = [
+            "congrats", "congratulations", "amazing", "awesome", "great", "nice",
+            "love this", "love it", "this is great", "so cool", "incredible",
+            "thanks for sharing", "excited", "can't wait", "looking forward",
+        ]
+        
         # Load toxicity detector if available
         try:
             from detoxify import Detoxify
@@ -81,6 +94,20 @@ class DataValidator:
         
         if self._is_spam_pattern(reply):
             reasons.append("Reply matches spam pattern")
+        
+        # NEW: Crypto spam keyword detection
+        if self._has_crypto_spam(reply):
+            reasons.append("Reply contains crypto spam keywords")
+        
+        # NEW: Word diversity check
+        unique_words = self._count_unique_words(reply)
+        if unique_words < self.min_unique_words:
+            reasons.append(f"Low word diversity ({unique_words} < {self.min_unique_words})")
+        
+        # NEW: Generic phrase detection
+        generic_ratio = self._calculate_generic_ratio(reply)
+        if generic_ratio > self.max_generic_ratio:
+            reasons.append(f"Too generic ({generic_ratio:.1%} generic phrases)")
         
         # Toxicity validation
         if self.toxicity_model:
@@ -240,11 +267,44 @@ class DataValidator:
         
         reply_likes = pair.get("reply_likes", 0)
         
-        # At minimum, reply should have some engagement
-        if reply_likes < 2:
+        # UPDATED: Stricter engagement threshold to filter bot spam
+        if reply_likes < self.min_engagement:
             return False
         
         return True
+    
+    def _has_crypto_spam(self, text: str) -> bool:
+        """Check if text contains crypto spam keywords"""
+        if not self.crypto_spam_keywords:
+            return False
+        
+        text_lower = text.lower()
+        for keyword in self.crypto_spam_keywords:
+            if keyword.lower() in text_lower:
+                return True
+        return False
+    
+    def _count_unique_words(self, text: str) -> int:
+        """Count unique meaningful words (excluding common stop words)"""
+        # Remove punctuation and convert to lowercase
+        words = re.findall(r'\b\w+\b', text.lower())
+        
+        # Filter out very short words and common stop words
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were'}
+        meaningful_words = [w for w in words if len(w) > 2 and w not in stop_words]
+        
+        return len(set(meaningful_words))
+    
+    def _calculate_generic_ratio(self, text: str) -> float:
+        """Calculate ratio of generic phrases in text"""
+        if not text:
+            return 0.0
+        
+        text_lower = text.lower()
+        generic_count = sum(1 for phrase in self.generic_phrases if phrase in text_lower)
+        
+        # Normalize by text length (generic phrases per 100 chars)
+        return min(1.0, generic_count / max(1, len(text) / 100))
 
 
 def main():

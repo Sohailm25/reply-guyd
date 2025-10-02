@@ -50,8 +50,8 @@ def load_config(config_path: str = "config/data_collection_config.yaml"):
         return yaml.safe_load(f)
 
 
-def collect_with_apify(config: dict, target_pairs: int, logger) -> list:
-    """Collect data using Apify"""
+def collect_with_apify(config: dict, target_pairs: int, logger, resume: bool = False) -> list:
+    """Collect data using Apify with checkpoint/resume support"""
     logger.info("=" * 60)
     logger.info("COLLECTION METHOD: Apify")
     logger.info("=" * 60)
@@ -64,9 +64,25 @@ def collect_with_apify(config: dict, target_pairs: int, logger) -> list:
     # Calculate tweets per query
     tweets_per_query = target_pairs // len(search_queries) + 1
     
+    # Try to resume from checkpoint
     all_pairs = []
+    start_query_idx = 0
+    processed_queries = []
+    
+    if resume:
+        all_pairs, start_query_idx, processed_queries = collector._load_checkpoint()
+        if all_pairs:
+            logger.info(f"🔄 RESUMING from checkpoint:")
+            logger.info(f"   Existing pairs: {len(all_pairs)}")
+            logger.info(f"   Resuming from query {start_query_idx + 1}/{len(search_queries)}")
+            logger.info(f"   Processed queries: {len(processed_queries)}")
     
     for idx, query in enumerate(search_queries):
+        # Skip already processed queries
+        if idx < start_query_idx:
+            logger.info(f"\n--- Skipping Query {idx+1}/{len(search_queries)} (already processed) ---")
+            continue
+        
         logger.info(f"\n--- Query {idx+1}/{len(search_queries)} ---")
         logger.info(f"Query: {query}")
         
@@ -78,17 +94,31 @@ def collect_with_apify(config: dict, target_pairs: int, logger) -> list:
             )
             
             all_pairs.extend(pairs)
+            processed_queries.append(query)
+            
             logger.info(f"Collected {len(pairs)} pairs from this query")
             logger.info(f"Total so far: {len(all_pairs)} pairs")
             
-            # Save checkpoint
+            # Save checkpoint after each query
+            if collector.checkpoint_enabled:
+                collector._save_checkpoint(all_pairs, idx, processed_queries)
+            
+            # Check if target reached
             if len(all_pairs) >= target_pairs:
                 logger.info(f"Target reached: {len(all_pairs)} >= {target_pairs}")
                 break
                 
         except Exception as e:
             logger.error(f"Error with query '{query}': {e}")
+            logger.error(f"Saving checkpoint before continuing...")
+            if collector.checkpoint_enabled:
+                collector._save_checkpoint(all_pairs, idx, processed_queries)
             continue
+    
+    # Clear checkpoint on successful completion
+    if len(all_pairs) >= target_pairs or idx == len(search_queries) - 1:
+        logger.info("✅ Collection complete - clearing checkpoint")
+        collector._clear_checkpoint()
     
     return all_pairs
 
@@ -250,6 +280,11 @@ def main():
         action="store_true",
         help="Skip cleaning/deduplication step"
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from checkpoint if exists (automatically loads progress)"
+    )
     
     args = parser.parse_args()
     
@@ -266,7 +301,7 @@ def main():
     
     # Step 1: Collect raw data
     if args.method == "apify":
-        raw_pairs = collect_with_apify(config, args.target, logger)
+        raw_pairs = collect_with_apify(config, args.target, logger, resume=args.resume)
     else:
         raw_pairs = collect_with_scraper(config, args.target, logger)
     
