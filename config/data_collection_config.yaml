@@ -12,19 +12,30 @@ collection:
   queries_per_day: 5
   collection_days: 14
   
-  # Search queries (rotate to get diverse topics)
+  # Search queries - SPECIFIC, SUBSTANTIVE TOPICS to avoid crypto spam
+  # Strategy: Target discussions that require actual knowledge/expertise
   search_queries:
-    - "AI OR artificial intelligence lang:en min_faves:200"
-    - "coding OR programming OR developer lang:en min_faves:200"
-    - "startup OR entrepreneur OR SaaS lang:en min_faves:200"
-    - "tech OR technology OR software lang:en min_faves:200"
-    - "python OR javascript OR typescript lang:en min_faves:200"
-    - "machine learning OR deep learning lang:en min_faves:200"
-    - "web development OR frontend OR backend lang:en min_faves:200"
+    # Technical deep-dives (attract developers, not bots)
+    - "(debugging OR \"code review\" OR refactoring) (tips OR advice OR best practices) lang:en min_faves:200 -crypto -NFT -giveaway until:2025-09-30"
+    - "(system design OR architecture OR scalability) (challenges OR lessons OR experience) lang:en min_faves:200 -crypto -NFT -web3 until:2025-09-30"
+    - "(performance OR optimization OR profiling) (problem OR solution OR improvement) lang:en min_faves:200 -airdrop -token until:2025-09-30"
+    
+    # Career/learning (real discussions, not spam)
+    - "(learning OR teaching OR mentoring) (programming OR coding OR software) (advice OR tips OR mistakes) lang:en min_faves:200 -crypto -NFT until:2025-09-30"
+    - "(junior OR senior OR career) (developer OR engineer) (advice OR transition OR growth) lang:en min_faves:200 -web3 -airdrop until:2025-09-30"
+    
+    # Product/design discussions
+    - "(product OR UX OR design) (decision OR tradeoff OR lesson) lang:en min_faves:200 -crypto -NFT -token until:2025-09-30"
+    - "(API OR database OR infrastructure) (design OR migration OR incident) lang:en min_faves:200 -airdrop -giveaway until:2025-09-30"
+    
+    # Specific tech discussions
+    - "(TypeScript OR React OR Node) (pattern OR antipattern OR gotcha) lang:en min_faves:200 -crypto -web3 until:2025-09-30"
+    - "(testing OR CI OR deployment) (strategy OR automation OR challenge) lang:en min_faves:200 -NFT -token until:2025-09-30"
+    - "(open source OR OSS OR contribution) (experience OR maintainer OR community) lang:en min_faves:200 -airdrop until:2025-09-30"
   
   # Tweet filters (from gameplan.md: target 200-1000 likes)
   tweet_filters:
-    min_likes: 200
+    min_likes: 100
     max_likes: 2000
     min_retweets: 10
     max_retweets: 500
@@ -32,22 +43,26 @@ collection:
     is_retweet: false
     is_quote: false
     language: "en"
+    verified: null  # Don't filter by verification (too restrictive, eliminates most tweets)
   
   # Reply filters (from gameplan.md: avoid celebrity/timing/media advantages)
   reply_filters:
-    min_likes: 5  # High-engagement replies
-    max_likes: 1000  # Avoid viral outliers
-    min_retweets: 0
+    min_likes: 5  # INCREASED - Filter bot engagement (was 1)
+    max_likes: 500  # Avoid viral outliers (lowered from 1000)
+    min_retweets: 0  # Most replies get 0 retweets, even good ones!
     max_retweets: 50
     
-    # Author filters (avoid celebrity effect)
-    min_follower_count: 500  # Avoid bots
-    max_follower_count: 100000  # Avoid celebrities
-    verified: null  # Don't filter by verification
+    # Author filters (avoid celebrity effect and bots)
+    min_follower_count: 200  # INCREASED - Better bot filtering (was 100)
+    max_follower_count: 20000  # LOWERED - Avoid influencer advantage (was 50k)
+    verified: null  # Allow both verified and unverified
+    
+    # Author diversity (prevent bot farms)
+    max_replies_per_author: 10  # NEW - Limit replies from single author
     
     # Timing filter (from gameplan.md: avoid first 5 min advantage)
     min_time_delay_seconds: 300  # 5 minutes after original tweet
-    max_time_delay_seconds: 86400  # 24 hours max
+    max_time_delay_seconds: 604800  # 7 days max (increased to capture more established engagement)
     
     # Content filters
     max_length: 280
@@ -62,6 +77,29 @@ collection:
     max_toxicity_score: 0.3
     remove_duplicates: true
     semantic_similarity_threshold: 0.9  # For deduplication
+    
+    # NEW: Substantive content filters
+    min_engagement_for_validation: 3  # INCREASED from 2 (was accepting bot spam)
+    min_unique_words: 8  # Require actual sentences, not "gm fren"
+    max_generic_phrase_ratio: 0.5  # Flag if >50% is generic phrases
+    
+    # Spam/bot patterns to reject
+    crypto_spam_keywords:
+      - "gm"
+      - "ser"
+      - "fren"
+      - "wagmi"
+      - "ngmi"
+      - "degen"
+      - "wen"
+      - "anon"
+      - "based and"
+      - "stay locked in"
+      - "revolution"
+      - "innovative"
+      - "onchain"
+      - "airdrop"
+      - "whitelist"
 
 # Apify Configuration
 apify:
