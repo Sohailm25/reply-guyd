@@ -1,211 +1,197 @@
 # 📚 Documentation Index
 
-All project documentation has been organized into logical categories for easier navigation.
+**Organized documentation for the Polychromic LoRA project**
 
 ---
 
-## 🔬 Research & Planning (`research/`)
+## 🎯 Quick Start
 
-**Core research documents and planning:**
+**New to the project?**
+→ Read `../README.md` (main project overview)
 
-- **`current_research.md`** - Literature review and research synthesis
-- **`gameplan.md`** - Realistic expectations and project planning
-- **`lora_implementation_plan.md`** - Detailed 6-phase implementation roadmap
-- **`scientific_experiment.md`** - Polychromic training methodology (from paper)
-- **`grpo_after_lora.md`** - Conceptual comparison: Polychromic vs GRPO
-- **`GRPO_STRATEGY_SUMMARY.md`** - 🎯 **Executive summary for GRPO implementation**
-- **`grpo_implementation_strategy.md`** - Complete GRPO strategy & technical deep dive
+**Ready to go from data to paper?**
+→ Read `../DATA_TO_PAPER_COMPLETE_WORKFLOW.md` ⭐ **START HERE**
 
----
-
-## 🚀 Setup & Getting Started (`setup-guides/`)
-
-**Initial setup and installation guides:**
-
-- **`GETTING_STARTED.md`** - Quick start guide for new users
-- **`SETUP_COMPLETE.md`** - What was installed and next steps
-- **`SETUP_STATUS.md`** - Installation verification and troubleshooting
-- **`VIRTUAL_ENV_GUIDE.md`** - Virtual environment activation help
-- **`WIFI_DISCONNECT_RECOVERY.md`** - WiFi/network disconnect troubleshooting
+**Want to understand what was implemented?**
+→ Read `../IMPLEMENTATION_SUMMARY.md`
 
 ---
 
-## ☁️ RunPod Training (`runpod-training/`)
+## 📁 Documentation Organization
 
-**Guides for training on RunPod cloud GPU:**
+### **🔬 Research & Strategy** (`research/` - 4 files)
 
-- **`RUNPOD_SETUP.md`** - Complete RunPod training guide (original)
-- **`RUNPOD_QUICKSTART.md`** - Quick start for polychromic training (new)
+**Strategic positioning for paper writing:**
 
----
+- **`novelty_research_claude.md`** ⭐ CRITICAL
+  - Detailed competitive analysis vs. Pass@k Training, BA-LoRA, GEM
+  - Novelty assessment by component
+  - Positioning recommendations for abstract, intro, related work
+  - **Read before writing paper sections**
 
-## 📊 Project Status & Logs (`project-status/`)
+- **`STRATEGIC_POSITIONING_SUMMARY.md`** ⭐ CRITICAL
+  - Executive summary of competitive positioning
+  - One-sentence pitches vs. each competitor
+  - Publication strategy and target venues
+  - **Read before writing abstract/intro**
 
-**Current state, history, and data collection:**
+**GRPO implementation strategies:**
 
-- **`PROJECT_STATUS.md`** - Current phase, progress, timeline
-- **`DATA_TO_PAPER_WORKFLOW.md`** - 🎯 **Complete workflow: Data → Training → Paper** ✨
-- **`SESSION_LOG.md`** - Detailed chronological development log
-- **`COMPLETE_IMPLEMENTATION_STATUS.md`** - Complete research implementation status
-- **`DOCUMENTATION_REORGANIZED.md`** - Documentation organization log
-- **`DATA_QUALITY_IMPROVEMENTS.md`** - Data filtering implementation details
-- **`RESUME_GUIDE.md`** - Fault-tolerant data collection guide
-- **`CLEANUP_SUMMARY.md`** - Cleanup operations log
-- **`RESTART_INSTRUCTIONS.md`** - Recovery instructions
-- **`AUTHOR_DIVERSITY_FIX.md`** - Author diversity tracking fix
-- **`REFINED_VISION_2025.md`** - General-purpose Polychromic LoRA vision
-- **`VISION_UPDATE_COMPLETE.md`** - Vision update summary
+- **`GRPO_STRATEGY_SUMMARY.md`**
+  - Executive summary for GRPO implementation
+  - Overview of two-phase training approach
 
----
-
-## 🎯 Implementation (`implementation/`)
-
-**Research-grade implementation documentation:**
-
-- **`RESEARCH_IMPLEMENTATION.md`** - Complete methodology for Arxiv paper
-- **`IMPLEMENTATION_COMPLETE.md`** - Success summary and next steps
-- **`FILES_IMPLEMENTED.md`** - Complete file listing and statistics
-- **`FOUR_BASELINE_GUIDE.md`** - Complete guide for four-baseline evaluation
-- **`FOUR_BASELINE_IMPLEMENTATION.md`** - Four-baseline implementation summary
-- **`ARCHITECTURE_OVERVIEW.md`** - System architecture and data flow
-- **`CHANGES_SUMMARY.md`** - Recent implementation changes
-- **`HYPERPARAMETER_STRATEGY.md`** - Hyperparameter adjustment strategy
-- **`HYPERPARAMETER_DECISION.md`** - Quick hyperparameter decision guide
-- **`CUDA_QUICKSTART.md`** - ⚡ Quick start guide for CUDA optimization
-- **`CUDA_OPTIMIZATION_PLAN.md`** - Complete 3-tier CUDA optimization roadmap
-- **`TWO_PHASE_TRAINING_GUIDE.md`** - 📊 **Complete two-phase training guide (SFT → GRPO)**
-- **`GRPO_QUICKSTART.md`** - ⚡ Step-by-step GRPO implementation guide
-
-**Evaluation Framework (NEW):**
-- **`EVALUATION_FRAMEWORK_REVIEW.md`** - ✨ Detailed evaluation methodology review
-- **`IMPLEMENTATION_PLAN.md`** - Step-by-step evaluation improvement plan
-- **`IMPLEMENTATION_COMPLETE_EVAL_IMPROVEMENTS.md`** - ✅ Evaluation improvements summary
-- **`QUICK_START_EVAL_IMPROVEMENTS.md`** - 🚀 Quick reference for evaluation updates
+- **`grpo_implementation_strategy.md`**
+  - Detailed technical guide for GRPO implementation
+  - Complete code specifications
+  - **For Phase 2 GRPO completion (if pursuing)**
 
 ---
 
-## 📖 Reference (`reference/`)
+### **🎯 Implementation Guides** (`implementation/` - 7 files)
 
-**Quick reference and structural documentation:**
+**Strategic planning:**
 
-- **`PROJECT_STRUCTURE.md`** - Directory layout and organization
-- **`QUICK_REFERENCE.md`** - Daily commands cheat sheet
-- **`README_PROJECT.md`** - Detailed project overview
+- **`FOUR_PHASE_IMPLEMENTATION_ROADMAP.md`** ⭐
+  - Complete 4-phase strategic plan
+  - Phase 1: Diversity Dynamics + Pareto (complete)
+  - Phase 2: GRPO + LoRA Analysis (LoRA done, GRPO scaffolded)
+  - Phase 3: Cross-Domain (skipped)
+  - Phase 4: Novel Metrics (complete)
 
----
+**Research methodology:**
 
-## 🎯 Quick Navigation
+- **`RESEARCH_IMPLEMENTATION.md`** ⭐
+  - Complete research methodology
+  - Experimental design details
+  - **Critical for writing Section 4 (Methods)**
 
-### New to the project?
-Start here: [`setup-guides/GETTING_STARTED.md`](setup-guides/GETTING_STARTED.md)
+**Training guides:**
 
-### Data collection done? What's next?
-**START HERE:** [`project-status/DATA_TO_PAPER_WORKFLOW.md`](project-status/DATA_TO_PAPER_WORKFLOW.md) 🎯
+- **`TWO_PHASE_TRAINING_GUIDE.md`**
+  - Complete SFT → GRPO two-phase guide
+  - Four training configurations
+  - Expected results and troubleshooting
 
-### Ready to train?
-Go here: [`runpod-training/RUNPOD_QUICKSTART.md`](runpod-training/RUNPOD_QUICKSTART.md)
+- **`GRPO_QUICKSTART.md`**
+  - Step-by-step GRPO implementation guide
+  - **For Phase 2 GRPO completion (if pursuing)**
 
-### Writing a paper?
-See: [`implementation/RESEARCH_IMPLEMENTATION.md`](implementation/RESEARCH_IMPLEMENTATION.md)
+**Evaluation & configuration:**
 
-### Evaluating four baselines?
-See: [`implementation/FOUR_BASELINE_GUIDE.md`](implementation/FOUR_BASELINE_GUIDE.md)
+- **`FOUR_BASELINE_GUIDE.md`**
+  - Four-baseline evaluation framework
+  - Zero-shot, prompt-engineered, baseline, polychromic
 
-### Evaluation improvements?
-See: [`implementation/QUICK_START_EVAL_IMPROVEMENTS.md`](implementation/QUICK_START_EVAL_IMPROVEMENTS.md)
-
-### Check current status?
-View: [`project-status/PROJECT_STATUS.md`](project-status/PROJECT_STATUS.md)
-
-### Need a command reference?
-Check: [`reference/QUICK_REFERENCE.md`](reference/QUICK_REFERENCE.md)
-
-### Understand the research?
-Read: [`research/current_research.md`](research/current_research.md)
-
-### Optimize with CUDA?
-Start: [`implementation/CUDA_QUICKSTART.md`](implementation/CUDA_QUICKSTART.md)
-
-### Implement GRPO after training?
-**Two-phase training guide:** [`implementation/TWO_PHASE_TRAINING_GUIDE.md`](implementation/TWO_PHASE_TRAINING_GUIDE.md) 📊  
-Overview: [`research/GRPO_STRATEGY_SUMMARY.md`](research/GRPO_STRATEGY_SUMMARY.md)  
-Strategy: [`research/grpo_implementation_strategy.md`](research/grpo_implementation_strategy.md)  
-Quick start: [`implementation/GRPO_QUICKSTART.md`](implementation/GRPO_QUICKSTART.md)
+- **`HYPERPARAMETER_STRATEGY.md`** ⭐
+  - Hyperparameter selection and troubleshooting
+  - **Referenced in workflow Day 6.5**
+  - Critical for handling overfitting
 
 ---
 
-## 📁 File Organization
+### **📊 Project Status** (`project-status/` - 1 file)
 
-```
-docs/
-├── README.md (this file)
-│
-├── research/                   # Research planning & methodology
-│   ├── current_research.md
-│   ├── gameplan.md
-│   ├── lora_implementation_plan.md
-│   └── scientific_experiment.md
-│
-├── setup-guides/               # Installation & setup
-│   ├── GETTING_STARTED.md
-│   ├── SETUP_COMPLETE.md
-│   ├── SETUP_STATUS.md
-│   ├── VIRTUAL_ENV_GUIDE.md
-│   └── WIFI_DISCONNECT_RECOVERY.md
-│
-├── runpod-training/            # Cloud GPU training
-│   ├── RUNPOD_SETUP.md
-│   └── RUNPOD_QUICKSTART.md
-│
-├── project-status/             # Logs & current state
-│   ├── PROJECT_STATUS.md
-│   ├── DATA_TO_PAPER_WORKFLOW.md         # NEW - Complete workflow guide!
-│   ├── SESSION_LOG.md
-│   ├── COMPLETE_IMPLEMENTATION_STATUS.md
-│   ├── DOCUMENTATION_REORGANIZED.md
-│   ├── DATA_QUALITY_IMPROVEMENTS.md
-│   ├── RESUME_GUIDE.md
-│   ├── REFINED_VISION_2025.md            # NEW - General-purpose vision
-│   ├── VISION_UPDATE_COMPLETE.md         # NEW - Vision summary
-│   ├── CLEANUP_SUMMARY.md
-│   ├── RESTART_INSTRUCTIONS.md
-│   └── AUTHOR_DIVERSITY_FIX.md
-│
-├── implementation/             # Implementation docs
-│   ├── RESEARCH_IMPLEMENTATION.md
-│   ├── IMPLEMENTATION_COMPLETE.md
-│   ├── FILES_IMPLEMENTED.md
-│   ├── FOUR_BASELINE_GUIDE.md
-│   ├── FOUR_BASELINE_IMPLEMENTATION.md
-│   ├── ARCHITECTURE_OVERVIEW.md
-│   ├── CHANGES_SUMMARY.md
-│   ├── HYPERPARAMETER_STRATEGY.md
-│   ├── HYPERPARAMETER_DECISION.md
-│   ├── EVALUATION_FRAMEWORK_REVIEW.md    # NEW
-│   ├── IMPLEMENTATION_PLAN.md            # NEW
-│   ├── IMPLEMENTATION_COMPLETE_EVAL_IMPROVEMENTS.md  # NEW
-│   └── QUICK_START_EVAL_IMPROVEMENTS.md  # NEW
-│
-└── reference/                  # Quick reference
-    ├── PROJECT_STRUCTURE.md
-    ├── QUICK_REFERENCE.md
-    └── README_PROJECT.md
-```
+- **`PROJECT_STATUS.md`**
+  - Current phase and progress
+  - Quick status reference
 
 ---
 
-## 🔍 Finding What You Need
+### **☁️ RunPod Training** (`runpod-training/` - 1 file)
 
-**Want to...**
-
-- **Understand the research methodology?** → `research/`
-- **Set up your environment?** → `setup-guides/`
-- **Train models on RunPod?** → `runpod-training/`
-- **Check what's happening now?** → `project-status/`
-- **Learn about implementation?** → `implementation/`
-- **Find a quick command?** → `reference/`
+- **`RUNPOD_SETUP.md`** ⭐
+  - Detailed RunPod pod configuration
+  - SSH setup, data upload methods
+  - **Referenced in workflow Day 3**
+  - Critical for saving time/money on pod setup
 
 ---
 
-**All documentation is now organized and easy to find!** 📚✨
+### **📖 Reference** (`reference/` - 1 file)
 
+- **`QUICK_REFERENCE.md`** ⭐
+  - Virtual environment activation commands
+  - Common command cheat sheet
+  - **Referenced in workflow Day 3**
+
+---
+
+## 🗺️ Navigation Guide
+
+### **I want to...**
+
+**...follow the complete workflow**
+→ `../DATA_TO_PAPER_COMPLETE_WORKFLOW.md` ⭐⭐⭐ (root level)
+
+**...understand novelty and positioning for paper**
+→ `research/STRATEGIC_POSITIONING_SUMMARY.md`  
+→ `research/novelty_research_claude.md`
+
+**...understand the research methodology**
+→ `implementation/RESEARCH_IMPLEMENTATION.md`
+
+**...troubleshoot training issues**
+→ `implementation/HYPERPARAMETER_STRATEGY.md`
+
+**...setup RunPod environment**
+→ `runpod-training/RUNPOD_SETUP.md`
+
+**...check current project status**
+→ `project-status/PROJECT_STATUS.md`
+
+**...find common commands**
+→ `reference/QUICK_REFERENCE.md`
+
+**...understand two-phase training**
+→ `implementation/TWO_PHASE_TRAINING_GUIDE.md`
+
+**...implement GRPO (future)**
+→ `research/GRPO_STRATEGY_SUMMARY.md`  
+→ `implementation/GRPO_QUICKSTART.md`
+
+---
+
+## 📊 Documentation Statistics
+
+**Total essential docs in docs/:**
+- research/: 4 files
+- implementation/: 7 files
+- project-status/: 1 file
+- runpod-training/: 1 file
+- reference/: 1 file
+
+**Total: 14 files** (down from 28, 50% reduction)
+
+**Quality:**
+- ✅ No redundancy
+- ✅ Clear purpose for each file
+- ✅ All referenced or essential
+- ✅ Easy to navigate
+
+---
+
+## 🎯 Most Important Documents
+
+**For immediate workflow (read in order):**
+1. `../DATA_TO_PAPER_COMPLETE_WORKFLOW.md` ⭐⭐⭐
+2. `../IMPLEMENTATION_SUMMARY.md`
+
+**For paper writing (Week 4-6):**
+3. `research/STRATEGIC_POSITIONING_SUMMARY.md` ⭐
+4. `research/novelty_research_claude.md` ⭐
+5. `implementation/RESEARCH_IMPLEMENTATION.md` ⭐
+
+**For troubleshooting:**
+6. `implementation/HYPERPARAMETER_STRATEGY.md`
+7. `runpod-training/RUNPOD_SETUP.md`
+8. `reference/QUICK_REFERENCE.md`
+
+**For GRPO implementation (if pursuing):**
+9. `research/GRPO_STRATEGY_SUMMARY.md`
+10. `implementation/GRPO_QUICKSTART.md`
+11. `implementation/TWO_PHASE_TRAINING_GUIDE.md`
+
+---
+
+**Documentation is now lean, focused, and professional!** ✨

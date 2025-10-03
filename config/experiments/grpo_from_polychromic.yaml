@@ -228,3 +228,4 @@ grpo_monitoring:
   # Diversity monitoring (important for polychromic start)
   min_diversity_score: 0.25  # Warning if diversity drops below Phase 1 level
 
+
