@@ -7,9 +7,27 @@ base_model:
 - Qwen/Qwen3-8B-Base
 ---
 
-# 🎯 Polychromic LoRA Fine-Tuning Project
+# 🎯 Polychromic LoRA: Diversity-Aware Parameter-Efficient Fine-Tuning
 
-**Research-grade implementation of diversity-aware Twitter reply generation using Qwen3-8B**
+**Research-grade implementation of a general-purpose diversity-aware fine-tuning method using Qwen3-8B**
+
+## 🌟 Overview
+
+**Polychromic LoRA** is a novel training approach that optimizes for both quality and diversity during parameter-efficient fine-tuning. Unlike standard LoRA which optimizes for single-generation quality, Polychromic LoRA explicitly trains for real-world deployment scenarios where multiple candidates are generated and the best is selected (Pass@k evaluation).
+
+### Key Innovation
+```
+L_polychromic = L_quality - λ · D(generations)
+
+Training objective matches deployment scenario → Better Pass@k performance
+```
+
+### Research Question
+> Does diversity-aware optimization improve Pass@k performance across task-specific domains while maintaining single-generation quality compared to standard LoRA fine-tuning?
+
+**Current Focus:** Social media reply generation (generalizable to code, creative writing, Q&A, etc.)
+
+---
 
 ## 📚 Documentation
 
@@ -17,10 +35,13 @@ All project documentation has been organized in [`docs/`](docs/):
 
 ### Quick Links
 - **📖 [Documentation Index](docs/README.md)** - Complete documentation organization
+- **🎯 [Data → Paper Workflow](docs/project-status/DATA_TO_PAPER_WORKFLOW.md)** - **Complete step-by-step guide** ✨
 - **🚀 [Getting Started](docs/setup-guides/GETTING_STARTED.md)** - Setup guide
 - **☁️ [RunPod Training](docs/runpod-training/RUNPOD_QUICKSTART.md)** - Train models on cloud GPU
 - **📊 [Project Status](docs/project-status/PROJECT_STATUS.md)** - Current phase & progress
 - **🔬 [Research Methodology](docs/implementation/RESEARCH_IMPLEMENTATION.md)** - Arxiv-quality implementation
+- **✅ [Evaluation Improvements](docs/implementation/QUICK_START_EVAL_IMPROVEMENTS.md)** - Temperature control + multi-seed
+- **🎯 [Four-Baseline Evaluation](docs/implementation/FOUR_BASELINE_GUIDE.md)** - Complete evaluation guide
 - **📋 [Quick Reference](docs/reference/QUICK_REFERENCE.md)** - Common commands
 
 ### Project Structure
@@ -35,12 +56,78 @@ All project documentation has been organized in [`docs/`](docs/):
 ```
 
 ### What This Project Does
-1. **Collects high-quality Twitter reply data** with rigorous filtering
-2. **Trains two models:** Standard LoRA baseline + Polychromic (diversity-aware)
-3. **Evaluates comprehensively:** Diversity metrics, quality metrics, statistical tests, LLM-as-judge
-4. **Generates publication-ready results** for Arxiv submission
+1. **Implements Polychromic LoRA:** General-purpose diversity-aware fine-tuning method
+2. **Implements two-phase training (SFT → GRPO):** Combines supervised learning with reinforcement learning
+3. **Evaluates four training approaches:** Baseline SFT, Polychromic SFT, Baseline→GRPO, Polychromic→GRPO
+4. **Comprehensive evaluation:** Diversity, quality, Pass@k, engagement prediction, statistical significance
+5. **Publication-ready:** Arxiv-quality experimental design and results
 
-**See [`docs/implementation/IMPLEMENTATION_COMPLETE.md`](docs/implementation/IMPLEMENTATION_COMPLETE.md) for complete status.**
+**Primary Contribution:** Combining supervised learning, diversity regularization, and reinforcement learning for optimal Pass@k performance
+
+**See [`docs/implementation/RESEARCH_IMPLEMENTATION.md`](docs/implementation/RESEARCH_IMPLEMENTATION.md) for complete methodology.**
+
+---
+
+## 🔬 Experimental Design
+
+### **Four Training Approaches**
+
+```
+1. Baseline LoRA (all SFT)
+   └─ Standard supervised fine-tuning on 5,000 examples
+   └─ Benchmark: Current SOTA for parameter-efficient fine-tuning
+
+2. Polychromic LoRA (all SFT)
+   └─ Diversity-aware supervised fine-tuning on 5,000 examples
+   └─ L = L_quality - λ·D(generations)
+   └─ Benchmark: Our Phase 1 contribution
+
+3. Baseline → GRPO (two-phase)
+   └─ Phase 1: Baseline SFT (2,500 examples, 2 epochs)
+   └─ Phase 2: GRPO refinement (2,500 examples, 3 epochs)
+   └─ Tests: Does GRPO improve over baseline?
+
+4. Polychromic → GRPO (two-phase) ⭐ MAIN CONTRIBUTION
+   └─ Phase 1: Polychromic SFT (2,500 examples, 2 epochs)
+   └─ Phase 2: GRPO refinement (2,500 examples, 3 epochs)
+   └─ L_total = α·L_supervised + β·L_grpo - λ·D(generations)
+   └─ Tests: Does diversity + RL achieve best results?
+```
+
+### **Research Questions**
+
+1. **Q1:** Does diversity-aware training improve Pass@k?
+   - Compare: Baseline (1) vs Polychromic (2)
+
+2. **Q2:** Does GRPO improve over SFT-only?
+   - Compare: Baseline (1) vs Baseline→GRPO (3)
+
+3. **Q3:** Do diversity + RL combine synergistically?
+   - Compare: Baseline→GRPO (3) vs Polychromic→GRPO (4)
+
+4. **Q4:** What's the best overall approach?
+   - Compare all four models
+   - **Hypothesis:** Polychromic→GRPO achieves best Pass@k and engagement
+
+### **Expected Results**
+
+| Model | Pass@1 | Pass@10 | Diversity | Quality | Engagement |
+|-------|--------|---------|-----------|---------|------------|
+| 1. Baseline (SFT) | **0.42** | 0.42 | 0.31 | **0.35** | 0.45 |
+| 2. Polychromic (SFT) | 0.40 | 0.61 | **0.42** | 0.33 | 0.52 |
+| 3. Baseline→GRPO | 0.38 | 0.68 | 0.34 | 0.32 | 0.64 |
+| 4. Polychromic→GRPO ⭐ | **0.45** | **0.75** | 0.40 | 0.34 | **0.70** |
+
+### **Data Splitting Strategy**
+
+Training data is split into two non-overlapping phases:
+- **Phase 1 (SFT warm-start):** 2,500 examples, stratified by engagement
+- **Phase 2 (GRPO refinement):** 2,500 examples, stratified by engagement
+- **Test set:** 500 examples, held out throughout
+
+**Rationale:** Non-overlapping data prevents overfitting, warm-start stabilizes GRPO training
+
+**See [`scripts/data/split_training_phases.py`](scripts/data/split_training_phases.py) for implementation.**
 
 ---
 

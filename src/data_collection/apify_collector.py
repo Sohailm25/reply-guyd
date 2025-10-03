@@ -54,10 +54,19 @@ class ApifyCollector:
         self.checkpoint_file = self.raw_data_dir / "collection_checkpoint.json"
         self.checkpoint_enabled = self.config["storage"]["checkpoint_enabled"]
         
+        # CRITICAL: Master data file (APPEND-ONLY, never overwritten)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        self.master_data_file = self.raw_data_dir / f"training_data_master_{timestamp}.jsonl"
+        self.flush_interval = 50  # Flush to master every 50 pairs
+        self.unflushed_pairs = []  # Temporary buffer for pairs not yet flushed to master
+        self.total_flushed_to_master = 0  # Track how many pairs are safely in master file
+        
         # Global author diversity tracking (persists across all queries)
         self.author_counts = {}
         
         logger.info(f"Apify collector initialized with actor: {self.actor_id}")
+        logger.info(f"Master data file: {self.master_data_file}")
+        logger.info(f"Flush interval: {self.flush_interval} pairs")
     
     def collect_tweets_and_replies(
         self,
@@ -570,31 +579,78 @@ class ApifyCollector:
             "raw": raw_tweet,  # Keep original for debugging
         }
     
+    def _flush_to_master(self, pairs_to_flush: List[Dict]):
+        """
+        Flush pairs to master data file (APPEND-ONLY, never overwrites)
+        This is the SAFE way to store data permanently.
+        """
+        if not pairs_to_flush:
+            return
+        
+        # CRITICAL: Use append mode ("a") to never lose data
+        with open(self.master_data_file, "a") as f:
+            for pair in pairs_to_flush:
+                f.write(json.dumps(pair) + "\n")
+        
+        self.total_flushed_to_master += len(pairs_to_flush)
+        logger.info(f"✅ Flushed {len(pairs_to_flush)} pairs to master file (total: {self.total_flushed_to_master})")
+    
     def _save_checkpoint(self, data: List[Dict], query_idx: int = 0, processed_queries: List[str] = None):
-        """Save collection checkpoint with actual data INCLUDING global author diversity tracking"""
+        """
+        Save collection checkpoint with automatic flushing to master file.
+        
+        Strategy:
+        1. Add new pairs to unflushed buffer
+        2. Every flush_interval pairs, append to master file
+        3. Save checkpoint metadata with progress tracking
+        
+        This ensures NO DATA LOSS even if process crashes!
+        """
+        # Calculate how many new pairs since last checkpoint
+        total_pairs = len(data)
+        new_pairs_count = total_pairs - self.total_flushed_to_master - len(self.unflushed_pairs)
+        
+        if new_pairs_count > 0:
+            # Get the new pairs (from the end of data list)
+            new_pairs = data[-new_pairs_count:]
+            self.unflushed_pairs.extend(new_pairs)
+        
+        # Flush to master file if we've accumulated enough pairs
+        if len(self.unflushed_pairs) >= self.flush_interval:
+            self._flush_to_master(self.unflushed_pairs)
+            self.unflushed_pairs = []  # Clear buffer after successful flush
+        
+        # Save checkpoint metadata
         checkpoint = {
             "timestamp": datetime.utcnow().isoformat(),
-            "pairs_collected": len(data),
+            "total_pairs_collected": total_pairs,
+            "flushed_to_master": self.total_flushed_to_master,
+            "unflushed_count": len(self.unflushed_pairs),
             "current_query_idx": query_idx,
             "processed_queries": processed_queries or [],
             "author_counts": self.author_counts,  # CRITICAL: Save global author tracking
             "unique_authors": len(self.author_counts),
+            "master_data_file": str(self.master_data_file),  # Track which file we're writing to
         }
         
-        # Save checkpoint metadata
+        # Save checkpoint metadata (this is just metadata, not the actual data)
         with open(self.checkpoint_file, "w") as f:
             json.dump(checkpoint, f, indent=2)
         
-        # Save actual data to checkpoint file
-        checkpoint_data_file = self.checkpoint_file.parent / "checkpoint_data.jsonl"
-        with open(checkpoint_data_file, "w") as f:
-            for pair in data:
-                f.write(json.dumps(pair) + "\n")
-        
-        logger.info(f"Checkpoint saved: {len(data)} pairs (query {query_idx}), {len(self.author_counts)} unique authors globally")
+        logger.info(f"Checkpoint saved: {total_pairs} pairs total (query {query_idx}), "
+                   f"{self.total_flushed_to_master} flushed to master, "
+                   f"{len(self.unflushed_pairs)} unflushed, "
+                   f"{len(self.author_counts)} unique authors globally")
     
     def _load_checkpoint(self) -> tuple:
-        """Load checkpoint if exists INCLUDING global author diversity tracking
+        """
+        Load checkpoint from master file + unflushed pairs.
+        
+        Strategy:
+        1. Load checkpoint metadata to get master file path
+        2. Load all pairs from master file (already flushed, safe data)
+        3. Restore unflushed pairs buffer from checkpoint
+        4. Restore author diversity tracking
         
         Returns:
             (existing_data, query_idx, processed_queries)
@@ -610,19 +666,33 @@ class ApifyCollector:
             # CRITICAL: Restore global author diversity tracking
             self.author_counts = checkpoint.get("author_counts", {})
             
-            # Load actual data
-            checkpoint_data_file = self.checkpoint_file.parent / "checkpoint_data.jsonl"
+            # Restore master file path (in case we're resuming)
+            master_file_path = checkpoint.get("master_data_file")
+            if master_file_path:
+                self.master_data_file = Path(master_file_path)
+            
+            # Restore flush tracking
+            self.total_flushed_to_master = checkpoint.get("flushed_to_master", 0)
+            
+            # Load ALL data from master file (safe, permanent storage)
             existing_data = []
-            if checkpoint_data_file.exists():
-                with open(checkpoint_data_file, "r") as f:
+            if self.master_data_file.exists():
+                with open(self.master_data_file, "r") as f:
                     for line in f:
                         if line.strip():
                             existing_data.append(json.loads(line))
+                logger.info(f"✅ Loaded {len(existing_data)} pairs from master file: {self.master_data_file}")
+            
+            # Note: We DON'T need to restore unflushed_pairs from checkpoint
+            # because we'll rebuild the full dataset in memory and track new pairs
+            self.unflushed_pairs = []
             
             query_idx = checkpoint.get("current_query_idx", 0)
             processed_queries = checkpoint.get("processed_queries", [])
             
-            logger.info(f"Checkpoint loaded: {len(existing_data)} pairs, {len(self.author_counts)} unique authors, resuming from query {query_idx}")
+            logger.info(f"Checkpoint loaded: {len(existing_data)} pairs from master, "
+                       f"{len(self.author_counts)} unique authors, "
+                       f"resuming from query {query_idx}")
             return existing_data, query_idx, processed_queries
         
         except Exception as e:
@@ -630,14 +700,29 @@ class ApifyCollector:
             return [], 0, []
     
     def _clear_checkpoint(self):
-        """Clear checkpoint files after successful completion"""
+        """
+        Clear checkpoint metadata after successful completion.
+        IMPORTANT: Master data file is NEVER deleted - it's your permanent data!
+        """
         try:
+            # CRITICAL: Flush any remaining unflushed pairs before clearing checkpoint
+            if self.unflushed_pairs:
+                logger.info(f"Flushing final {len(self.unflushed_pairs)} unflushed pairs before completion")
+                self._flush_to_master(self.unflushed_pairs)
+                self.unflushed_pairs = []
+            
+            # Only clear the checkpoint metadata file (not the master data!)
             if self.checkpoint_file.exists():
                 self.checkpoint_file.unlink()
-            checkpoint_data_file = self.checkpoint_file.parent / "checkpoint_data.jsonl"
-            if checkpoint_data_file.exists():
-                checkpoint_data_file.unlink()
-            logger.info("Checkpoint files cleared")
+            
+            # Clean up old checkpoint_data.jsonl if it exists (legacy from old system)
+            old_checkpoint_data = self.checkpoint_file.parent / "checkpoint_data.jsonl"
+            if old_checkpoint_data.exists():
+                old_checkpoint_data.unlink()
+                logger.info("Removed legacy checkpoint_data.jsonl")
+            
+            logger.info(f"✅ Checkpoint cleared. Master data file preserved: {self.master_data_file}")
+            logger.info(f"✅ Total pairs saved to master: {self.total_flushed_to_master}")
         except Exception as e:
             logger.warning(f"Failed to clear checkpoint: {e}")
     

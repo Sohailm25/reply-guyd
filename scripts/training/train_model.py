@@ -87,6 +87,7 @@ def setup_model_and_tokenizer(config: dict):
         model_path,
         quantization_config=quantization_config,
         device_map="auto",
+        attn_implementation="flash_attention_2",
         torch_dtype=torch.bfloat16 if quant_config['bnb_4bit_compute_dtype'] == 'bfloat16' else torch.float16,
         trust_remote_code=False
     )

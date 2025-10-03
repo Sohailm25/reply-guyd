@@ -125,11 +125,34 @@ def generate_replies(
     tokenizer,
     prompts: List[str],
     n_per_prompt: int = 10,
-    temperature: float = 0.7,
+    evaluation_mode: str = "diverse",
     max_new_tokens: int = 100
 ) -> List[List[str]]:
-    """Generate multiple replies for each prompt."""
-    logger.info(f"Generating {n_per_prompt} replies for {len(prompts)} prompts...")
+    """
+    Generate multiple replies for each prompt.
+    
+    Args:
+        model: Model to use for generation
+        tokenizer: Tokenizer
+        prompts: List of tweets to reply to
+        n_per_prompt: Number of generations per prompt (overridden if mode='deterministic')
+        evaluation_mode: 'deterministic' (temp=0, for quality metrics) or 
+                        'diverse' (temp=0.7, for Pass@k)
+        max_new_tokens: Maximum tokens to generate
+    
+    Returns:
+        List of lists of generated replies
+    """
+    # Set generation parameters based on evaluation mode
+    if evaluation_mode == "deterministic":
+        temperature = 0.0
+        do_sample = False
+        n_per_prompt = 1  # Single generation for deterministic mode
+        logger.info(f"[DETERMINISTIC MODE] Generating single reply for {len(prompts)} prompts (temp=0.0, greedy)...")
+    else:  # diverse
+        temperature = 0.7
+        do_sample = True
+        logger.info(f"[DIVERSE MODE] Generating {n_per_prompt} replies for {len(prompts)} prompts (temp=0.7, sampling)...")
     
     all_replies = []
     
@@ -151,7 +174,7 @@ def generate_replies(
         
         inputs = tokenizer([text], return_tensors="pt").to(model.device)
         
-        # Generate multiple replies
+        # Generate replies
         replies = []
         for _ in range(n_per_prompt):
             with torch.no_grad():
@@ -159,8 +182,8 @@ def generate_replies(
                     **inputs,
                     max_new_tokens=max_new_tokens,
                     temperature=temperature,
-                    top_p=0.9,
-                    do_sample=True,
+                    top_p=0.9 if do_sample else 1.0,
+                    do_sample=do_sample,
                     pad_token_id=tokenizer.pad_token_id,
                     eos_token_id=tokenizer.eos_token_id,
                 )
@@ -183,7 +206,7 @@ def generate_with_prompt_template(
     prompts: List[str],
     prompt_template_fn: Callable[[str], str],
     n_per_prompt: int = 10,
-    temperature: float = 0.7,
+    evaluation_mode: str = "diverse",
     max_new_tokens: int = 100
 ) -> List[List[str]]:
     """
@@ -194,14 +217,24 @@ def generate_with_prompt_template(
         tokenizer: Tokenizer
         prompts: List of tweets to reply to
         prompt_template_fn: Function that takes tweet and returns formatted prompt
-        n_per_prompt: Number of generations per prompt
-        temperature: Sampling temperature
+        n_per_prompt: Number of generations per prompt (overridden if mode='deterministic')
+        evaluation_mode: 'deterministic' (temp=0, for quality metrics) or 
+                        'diverse' (temp=0.7, for Pass@k)
         max_new_tokens: Maximum tokens to generate
         
     Returns:
         List of lists of generated replies
     """
-    logger.info(f"Generating {n_per_prompt} replies for {len(prompts)} prompts with custom prompt template...")
+    # Set generation parameters based on evaluation mode
+    if evaluation_mode == "deterministic":
+        temperature = 0.0
+        do_sample = False
+        n_per_prompt = 1  # Single generation for deterministic mode
+        logger.info(f"[DETERMINISTIC MODE] Generating single reply with custom prompt for {len(prompts)} prompts...")
+    else:  # diverse
+        temperature = 0.7
+        do_sample = True
+        logger.info(f"[DIVERSE MODE] Generating {n_per_prompt} replies with custom prompt for {len(prompts)} prompts...")
     
     all_replies = []
     
@@ -226,7 +259,7 @@ def generate_with_prompt_template(
         
         inputs = tokenizer([text], return_tensors="pt").to(model.device)
         
-        # Generate multiple replies
+        # Generate replies
         replies = []
         for _ in range(n_per_prompt):
             with torch.no_grad():
@@ -234,8 +267,8 @@ def generate_with_prompt_template(
                     **inputs,
                     max_new_tokens=max_new_tokens,
                     temperature=temperature,
-                    top_p=0.9,
-                    do_sample=True,
+                    top_p=0.9 if do_sample else 1.0,
+                    do_sample=do_sample,
                     pad_token_id=tokenizer.pad_token_id,
                     eos_token_id=tokenizer.eos_token_id,
                 )
@@ -344,60 +377,125 @@ def main():
         base_model, base_tokenizer = load_base_model_only(args.base_model)
     
     # Generate replies for each selected model
+    # We generate TWICE for each model:
+    #  1. Deterministic mode (temp=0, n=1) for quality metrics (ROUGE, BERTScore)
+    #  2. Diverse mode (temp=0.7, n=10) for diversity and Pass@k metrics
+    
     logger.info("\n" + "="*60)
-    logger.info("GENERATING REPLIES")
+    logger.info("GENERATING REPLIES - DETERMINISTIC MODE")
+    logger.info("(Temperature=0, single generation for ROUGE/BERTScore)")
     logger.info("="*60)
     
-    # 1. Zero-shot baseline
+    deterministic_replies = {}  # For quality metrics
+    
+    # 1. Zero-shot baseline (deterministic)
     if args.include_zero_shot:
-        logger.info("\n[1/N] Zero-Shot Baseline:")
-        all_model_replies['zero_shot'] = generate_with_prompt_template(
+        logger.info("\n[1/N] Zero-Shot Baseline (deterministic):")
+        deterministic_replies['zero_shot'] = generate_with_prompt_template(
             base_model,
             base_tokenizer,
             prompts,
             PROMPT_VARIANTS['zero_shot'],
-            n_per_prompt=args.n_generations
+            evaluation_mode='deterministic'
         )
     
-    # 2. Prompt-engineered baseline
+    # 2. Prompt-engineered baseline (deterministic)
     if args.include_prompt_engineered:
-        logger.info(f"\n[2/N] Prompt-Engineered Baseline (variant: {args.prompt_variant}):")
-        all_model_replies['prompt_engineered'] = generate_with_prompt_template(
+        logger.info(f"\n[2/N] Prompt-Engineered Baseline (deterministic):")
+        deterministic_replies['prompt_engineered'] = generate_with_prompt_template(
             base_model,
             base_tokenizer,
             prompts,
             PROMPT_VARIANTS[args.prompt_variant],
-            n_per_prompt=args.n_generations
+            evaluation_mode='deterministic'
         )
     
-    # 3. Baseline LoRA
+    # 3. Baseline LoRA (deterministic)
+    baseline_lora_model = None
+    baseline_lora_tokenizer = None
     if args.baseline_lora:
         logger.info("\n" + "="*60)
         logger.info("LOADING BASELINE LORA")
         logger.info("="*60)
         baseline_lora_model, baseline_lora_tokenizer = load_model(args.baseline_lora, args.base_model)
         
-        logger.info("\n[3/N] Baseline LoRA:")
-        all_model_replies['baseline_lora'] = generate_replies(
+        logger.info("\n[3/N] Baseline LoRA (deterministic):")
+        deterministic_replies['baseline_lora'] = generate_replies(
             baseline_lora_model,
             baseline_lora_tokenizer,
             prompts,
-            n_per_prompt=args.n_generations
+            evaluation_mode='deterministic'
         )
     
-    # 4. Polychromic LoRA
+    # 4. Polychromic LoRA (deterministic)
+    polychromic_lora_model = None
+    polychromic_lora_tokenizer = None
     if args.polychromic_lora:
         logger.info("\n" + "="*60)
         logger.info("LOADING POLYCHROMIC LORA")
         logger.info("="*60)
         polychromic_lora_model, polychromic_lora_tokenizer = load_model(args.polychromic_lora, args.base_model)
         
-        logger.info("\n[4/N] Polychromic LoRA:")
+        logger.info("\n[4/N] Polychromic LoRA (deterministic):")
+        deterministic_replies['polychromic_lora'] = generate_replies(
+            polychromic_lora_model,
+            polychromic_lora_tokenizer,
+            prompts,
+            evaluation_mode='deterministic'
+        )
+    
+    # Now generate DIVERSE mode for Pass@k and diversity metrics
+    logger.info("\n" + "="*60)
+    logger.info("GENERATING REPLIES - DIVERSE MODE")
+    logger.info(f"(Temperature=0.7, {args.n_generations} generations for Pass@k)")
+    logger.info("="*60)
+    
+    all_model_replies = {}  # For diversity and Pass@k
+    
+    # 1. Zero-shot baseline (diverse)
+    if args.include_zero_shot:
+        logger.info("\n[1/N] Zero-Shot Baseline (diverse):")
+        all_model_replies['zero_shot'] = generate_with_prompt_template(
+            base_model,
+            base_tokenizer,
+            prompts,
+            PROMPT_VARIANTS['zero_shot'],
+            n_per_prompt=args.n_generations,
+            evaluation_mode='diverse'
+        )
+    
+    # 2. Prompt-engineered baseline (diverse)
+    if args.include_prompt_engineered:
+        logger.info(f"\n[2/N] Prompt-Engineered Baseline (diverse):")
+        all_model_replies['prompt_engineered'] = generate_with_prompt_template(
+            base_model,
+            base_tokenizer,
+            prompts,
+            PROMPT_VARIANTS[args.prompt_variant],
+            n_per_prompt=args.n_generations,
+            evaluation_mode='diverse'
+        )
+    
+    # 3. Baseline LoRA (diverse)
+    if args.baseline_lora:
+        logger.info("\n[3/N] Baseline LoRA (diverse):")
+        all_model_replies['baseline_lora'] = generate_replies(
+            baseline_lora_model,
+            baseline_lora_tokenizer,
+            prompts,
+            n_per_prompt=args.n_generations,
+            evaluation_mode='diverse'
+        )
+    
+    # 4. Polychromic LoRA (diverse)
+    if args.polychromic_lora:
+        logger.info("\n[4/N] Polychromic LoRA (diverse):")
         all_model_replies['polychromic_lora'] = generate_replies(
             polychromic_lora_model,
             polychromic_lora_tokenizer,
             prompts,
-            n_per_prompt=args.n_generations
+            n_per_prompt=args.n_generations,
+            evaluation_mode='diverse'
         )
     
     # ===== COMPUTE METRICS FOR ALL MODELS =====
@@ -408,19 +506,21 @@ def main():
     diversity_results = {}
     quality_results = {}
     
-    for model_name, replies in all_model_replies.items():
+    for model_name in all_model_replies.keys():
         logger.info(f"\n{model_name}:")
         
-        # Diversity metrics (use all generations)
-        flat_replies = [r for reply_list in replies for r in reply_list]
-        logger.info("  Computing diversity metrics...")
+        # Diversity metrics (use diverse mode generations)
+        diverse_replies = all_model_replies[model_name]
+        flat_replies = [r for reply_list in diverse_replies for r in reply_list]
+        logger.info("  Computing diversity metrics (from diverse mode)...")
         diversity_results[model_name] = compute_all_diversity_metrics(flat_replies)
         
-        # Quality metrics (use first generation only)
-        first_replies = [reply_list[0] for reply_list in replies]
-        logger.info("  Computing quality metrics...")
+        # Quality metrics (use deterministic mode generation - temp=0, reproducible)
+        deterministic_reply_list = deterministic_replies[model_name]
+        single_replies = [reply_list[0] for reply_list in deterministic_reply_list]
+        logger.info("  Computing quality metrics (from deterministic mode)...")
         quality_results[model_name] = {
-            'rouge': compute_rouge_scores(first_replies, references)
+            'rouge': compute_rouge_scores(single_replies, references)
         }
     
     # Save metrics
