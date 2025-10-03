@@ -12,26 +12,35 @@ collection:
   queries_per_day: 5
   collection_days: 14
   
-  # Search queries - SPECIFIC, SUBSTANTIVE TOPICS to avoid crypto spam
-  # Strategy: Target discussions that require actual knowledge/expertise
+  # Search queries - DIVERSE, SUBSTANTIVE TOPICS with strong spam filters
+  # Strategy: Mix of tech, business, creative topics to ensure author diversity
   search_queries:
     # Technical deep-dives (attract developers, not bots)
-    - "(debugging OR \"code review\" OR refactoring) (tips OR advice OR best practices) lang:en min_faves:200 -crypto -NFT -giveaway until:2025-09-30"
-    - "(system design OR architecture OR scalability) (challenges OR lessons OR experience) lang:en min_faves:200 -crypto -NFT -web3 until:2025-09-30"
-    - "(performance OR optimization OR profiling) (problem OR solution OR improvement) lang:en min_faves:200 -airdrop -token until:2025-09-30"
+    - "(debugging OR \"code review\" OR refactoring) (tips OR advice OR best practices) lang:en min_faves:150 -crypto -NFT -giveaway -airdrop until:2025-09-30"
+    - "(system design OR architecture OR scalability) (challenges OR lessons OR learned) lang:en min_faves:150 -crypto -NFT -web3 -token until:2025-09-30"
+    - "(performance OR optimization) (before OR after OR improved) lang:en min_faves:150 -airdrop -token -whitelist until:2025-09-30"
     
-    # Career/learning (real discussions, not spam)
-    - "(learning OR teaching OR mentoring) (programming OR coding OR software) (advice OR tips OR mistakes) lang:en min_faves:200 -crypto -NFT until:2025-09-30"
-    - "(junior OR senior OR career) (developer OR engineer) (advice OR transition OR growth) lang:en min_faves:200 -web3 -airdrop until:2025-09-30"
+    # Startup/Business discussions (different author pool)
+    - "(startup OR founder OR bootstrapped) (mistake OR lesson OR regret) lang:en min_faves:150 -crypto -NFT -web3 -token until:2025-09-30"
+    - "(product OR launch OR MVP) (failed OR succeeded OR learned) lang:en min_faves:150 -airdrop -giveaway -NFT until:2025-09-30"
+    - "(pricing OR revenue OR growth) (strategy OR experiment OR insight) lang:en min_faves:150 -crypto -web3 -token until:2025-09-30"
     
-    # Product/design discussions
-    - "(product OR UX OR design) (decision OR tradeoff OR lesson) lang:en min_faves:200 -crypto -NFT -token until:2025-09-30"
-    - "(API OR database OR infrastructure) (design OR migration OR incident) lang:en min_faves:200 -airdrop -giveaway until:2025-09-30"
+    # Creative/Writing (totally different audience, great replies)
+    - "(writing OR storytelling OR narrative) (craft OR technique OR advice) lang:en min_faves:150 -crypto -NFT -airdrop until:2025-09-30"
+    - "(design OR illustration OR creative) (process OR workflow OR tool) lang:en min_faves:150 -web3 -token -giveaway until:2025-09-30"
     
-    # Specific tech discussions
-    - "(TypeScript OR React OR Node) (pattern OR antipattern OR gotcha) lang:en min_faves:200 -crypto -web3 until:2025-09-30"
-    - "(testing OR CI OR deployment) (strategy OR automation OR challenge) lang:en min_faves:200 -NFT -token until:2025-09-30"
-    - "(open source OR OSS OR contribution) (experience OR maintainer OR community) lang:en min_faves:200 -airdrop until:2025-09-30"
+    # Career/Learning (broad appeal, thoughtful replies)
+    - "(career OR job OR interview) (advice OR mistake OR transition) lang:en min_faves:150 -crypto -NFT -web3 -airdrop until:2025-09-30"
+    - "(remote OR freelance OR consultant) (challenge OR lesson OR tip) lang:en min_faves:150 -token -giveaway -NFT until:2025-09-30"
+    
+    # Psychology/Self-improvement (high engagement, thoughtful)
+    - "(productivity OR focus OR burnout) (struggle OR solution OR habit) lang:en min_faves:150 -crypto -web3 -NFT -token until:2025-09-30"
+    - "(imposter syndrome OR self-doubt OR confidence) (overcome OR deal OR manage) lang:en min_faves:150 -airdrop -giveaway -NFT until:2025-09-30"
+    
+    # Specific interesting topics (varied voices)
+    - "(open source OR OSS OR maintainer) (burnout OR sustainability OR funding) lang:en min_faves:150 -crypto -NFT -token until:2025-09-30"
+    - "(API OR database OR infrastructure) (outage OR incident OR postmortem) lang:en min_faves:150 -airdrop -web3 -giveaway until:2025-09-30"
+    - "(testing OR CI OR automation) (saved OR prevented OR caught) lang:en min_faves:150 -crypto -NFT -token until:2025-09-30"
   
   # Tweet filters (from gameplan.md: target 200-1000 likes)
   tweet_filters:

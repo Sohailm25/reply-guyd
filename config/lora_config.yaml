@@ -25,7 +25,8 @@ lora:
   alpha: 16  # Keep alpha = rank
   dropout: 0.1  # 10% dropout for regularization
   
-  # Target modules: ALL linear layers in Qwen3 (from implementation plan)
+  # this is based on Thinking Machines finding that 
+  # Even in small data settings, LoRA performs better when applied to all weight matrices, especially MLP and MoE layers. Attention-only LoRA underperforms even when we match the number of trainable parameters by using higher rank for attention-only LoRA
   target_modules:
     - "q_proj"
     - "k_proj"

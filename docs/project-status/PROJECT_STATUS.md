@@ -1,7 +1,7 @@
 # Project Status - Qwen3-8B LoRA Fine-Tuning
 
-**Last Updated**: October 2, 2025, 07:00 AM  
-**Current Phase**: Phase 2 - Data Collection (IN PROGRESS)  
+**Last Updated**: October 2, 2025 (After Critical Bug Fix)  
+**Current Phase**: Phase 2 - Data Collection (RESTART REQUIRED)  
 **Overall Progress**: ~40% Complete
 
 ---
@@ -42,22 +42,44 @@
 
 ## 🔄 Current Phase
 
-### Phase 2: Data Collection (60% Complete - IN PROGRESS)
+### Phase 2: Data Collection (40% Complete - RESTART REQUIRED)
 
-**Current Activity:**
-```
-🔄 COLLECTING DATA - tmux session active
-Command: ./run.sh python scripts/collect_data.py --method apify --target 3500 --resume
-Started: October 2, 2025, 07:00 AM
-Expected completion: ~12:00-15:00 PM (5-8 hours)
+**⚠️ CRITICAL BUG FIXED - RESTART COLLECTION**
+
+**Issue Identified:**
+- Author diversity tracking was resetting per query (bot farm vulnerability)
+- Previous run collected 1,408 pairs from ONLY 1 AUTHOR (bot farm)
+- Validation correctly rejected most (27.9% pass rate)
+
+**Fixes Implemented:**
+- ✅ Global author tracking across ALL queries (not per-query)
+- ✅ Checkpoint persistence for author counts
+- ✅ 15 diverse search queries (tech, business, creative, career, psychology)
+- ✅ Lowered min_faves to 150 (from 200) for more results
+- ✅ Stronger spam filters on all queries
+
+**Next Steps:**
+```bash
+# Delete old contaminated data
+rm -f data/processed/training_data_*.jsonl
+rm -f data/raw/collection_checkpoint.json data/raw/checkpoint_data.jsonl
+
+# Start fresh collection with fixes
+./run.sh scripts/collect_data.py --method apify --target 1500
+
+# Or run in tmux for resilience
+tmux new -s collection
+./run.sh scripts/collect_data.py --method apify --target 1500
+# Ctrl+B, then D to detach
 ```
 
 **Progress:**
-- ✅ Quality filters implemented and tested
+- ✅ Quality filters implemented and tested (63.3% pass rate before bot fix)
 - ✅ Checkpoint system operational
-- ✅ Collection launched in tmux (fault-tolerant)
-- 🔄 Collecting 3,500 raw pairs (expected: 1,200-1,800 after filtering)
-- ⏳ Pending: Manual curation to 800 best pairs
+- ✅ Author diversity bug fixed (GLOBAL tracking)
+- ✅ Search queries diversified (15 topics)
+- 🔄 Ready to restart collection
+- ⏳ Pending: Collect 1,500 raw pairs → ~900 after filtering → 800 after manual curation
 
 **Quality Filters Active:**
 1. **Crypto spam detection** - Blocks 15+ spam keywords (gm, fren, wagmi, etc.)
