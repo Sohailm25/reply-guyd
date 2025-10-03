@@ -118,7 +118,10 @@ def collect_with_apify(config: dict, target_pairs: int, logger, resume: bool = F
     # Clear checkpoint on successful completion
     if len(all_pairs) >= target_pairs or idx == len(search_queries) - 1:
         logger.info("✅ Collection complete - clearing checkpoint")
+        logger.info(f"📁 Master data file: {collector.master_data_file}")
+        logger.info(f"💾 Total pairs saved: {collector.total_flushed_to_master}")
         collector._clear_checkpoint()
+        logger.info(f"✅ Final flush complete: All {len(all_pairs)} pairs saved to master file")
     
     return all_pairs
 

@@ -1,24 +1,26 @@
-# 🏗️ Complete Architecture Overview
+# 🏗️ Polychromic LoRA: Complete Architecture Overview
 
-## 🎯 Four-Baseline Evaluation System
+## 🎯 General-Purpose Diversity-Aware Fine-Tuning System
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    EVALUATION PIPELINE                       │
+│         POLYCHROMIC LORA: EVALUATION PIPELINE                │
+│      (General-Purpose, Works Across Domains)                 │
 └─────────────────────────────────────────────────────────────┘
 
-INPUT: Test Tweets (100 examples)
+INPUT: Task-Specific Test Data (100 examples per domain)
+       Domain: Social Media | Code | Creative Writing | Q&A
     ↓
     ├─────────┬─────────┬─────────┬─────────┐
     ↓         ↓         ↓         ↓         ↓
     
 ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
-│ Zero-   │ │ Prompt- │ │Baseline │ │Polychro │
-│ Shot    │ │Engineered│ │  LoRA   │ │mic LoRA │
+│ Zero-   │ │ Few-    │ │Standard │ │Polychro │
+│ Shot    │ │ Shot    │ │  LoRA   │ │mic LoRA │
 └─────────┘ └─────────┘ └─────────┘ └─────────┘
     │         │         │         │
-    │Simple   │Custom   │Trained  │Trained+
-    │Prompt   │Prompt   │Model    │Diversity
+    │No       │No       │Standard │Diversity-
+    │Training │Training │Training │Aware
     ↓         ↓         ↓         ↓
     
 Generate 10 replies per tweet
@@ -46,28 +48,29 @@ Semantic                   Pass@10
 
 ## 📊 Model Details
 
-### **Model 1: Zero-Shot**
+### **Model 1: Zero-Shot Baseline**
 ```
 Qwen3-8B (base, 4-bit)
     ↓
-Simple Prompt: "Generate a reply to: {tweet}"
+Simple Prompt: "Generate [output] for: {input}"
     ↓
-Generate Reply (temp=0.7)
+Generate Output (temp=0.7)
 ```
-**No training | $0 | Fast**
+**No training | $0 | Fast | Proves training is needed**
 
-### **Model 2: Prompt-Engineered**
+### **Model 2: Few-Shot Baseline**
 ```
 Qwen3-8B (base, 4-bit)
     ↓
-Optimized Prompt:
-  - Detailed instructions
-  - OR 5 hardcoded examples    ← CUSTOMIZABLE!
-  - OR style-specific guidance
+5-Shot Prompt:
+  - Example 1: Input → Output
+  - Example 2: Input → Output
+  - ... (5 examples total)
+  - Now: {input}
     ↓
-Generate Reply (temp=0.7)
+Generate Output (temp=0.7)
 ```
-**No training | $0 | Customizable**
+**No training | $0 | Tests in-context learning limits**
 
 ### **Model 3: Baseline LoRA**
 ```
@@ -79,22 +82,25 @@ Train with: L = CrossEntropy(prediction, target)
     ↓
 Fine-tuned Model
 ```
-**4hrs training | $3 | Standard approach**
+**4hrs training | $3 | Current state-of-the-art baseline**
 
-### **Model 4: Polychromic LoRA**
+### **Model 4: Polychromic LoRA** (Our Contribution)
 ```
 Qwen3-8B (base, 4-bit)
     ↓
 Add LoRA Adapters (rank=16)
     ↓
-Train with: L = Quality - λ*Diversity
-  - Generate 3 diverse replies
-  - Compute semantic diversity
+Train with: L = L_quality - λ·D(generations)
+  - Generate N diverse candidates per example
+  - Compute diversity score D
   - Optimize combined objective
+  - Matches training → deployment scenario
     ↓
-Fine-tuned Model (diversity-aware)
+Fine-tuned Model (optimized for Pass@k)
 ```
-**12hrs training | $9 | Novel contribution**
+**12hrs training | $9 | Novel diversity-aware method**
+
+**Key Difference:** Polychromic explicitly trains for multi-candidate scenarios (Pass@k)
 
 ---
 

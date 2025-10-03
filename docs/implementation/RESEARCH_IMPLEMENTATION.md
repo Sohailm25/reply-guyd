@@ -1,11 +1,14 @@
-# Research-Grade Polychromic Training Implementation
+# Research-Grade Polychromic LoRA Implementation
 
 ## 🎯 Overview
 
-This is a **research-grade implementation** of polychromic (diversity-aware) LoRA fine-tuning for Twitter reply generation, designed for **Arxiv-quality** experimentation and analysis.
+This is a **research-grade implementation** of Polychromic LoRA: a general-purpose diversity-aware parameter-efficient fine-tuning method designed for **Arxiv-quality** experimentation and analysis.
 
 **Research Question:**
-> Does diversity-aware optimization improve both quality and diversity of generated Twitter replies compared to standard supervised fine-tuning?
+> Does diversity-aware optimization (Polychromic LoRA) improve Pass@k performance across task-specific domains while maintaining single-generation quality compared to standard LoRA fine-tuning?
+
+**Key Insight:**
+Training objectives should match deployment scenarios. When multiple candidates are generated and the best is selected (Pass@k evaluation), explicitly optimizing for diversity during training yields better results than standard single-generation optimization.
 
 **Key Features:**
 - ✅ Both baseline and polychromic training
@@ -20,11 +23,16 @@ This is a **research-grade implementation** of polychromic (diversity-aware) LoR
 
 ## 📊 Experimental Design
 
-### Models
+### Models (Per Domain)
 
-1. **Baseline** - Standard LoRA with cross-entropy loss
-2. **Polychromic (λ=0.3, N=3)** - Diversity-aware training
-3. **Ablations** - Different λ values (0.1, 0.2, 0.5)
+1. **Zero-shot** - Base model with simple prompt
+2. **Few-shot** - Base model with 5-shot examples
+3. **Standard LoRA** - Parameter-efficient fine-tuning with cross-entropy loss
+4. **Polychromic LoRA (λ=0.3, N=3)** - Diversity-aware training (ours)
+
+**Ablations:** Different λ values (0.1, 0.2, 0.5), different N values (2, 3, 5)
+
+**Domains:** Social media replies, code generation, creative writing (or Q&A)
 
 ### Evaluation Metrics
 
@@ -38,9 +46,10 @@ This is a **research-grade implementation** of polychromic (diversity-aware) LoR
 - BERTScore
 - Perplexity
 
-**Task Performance:**
-- Pass@k (k=1,5,10)
-- LLM-as-judge (Claude 3.5 Sonnet)
+**Task Performance (Primary Metric):**
+- Pass@k (k=1,3,5,10) - Our focus
+- Domain-specific metrics (accuracy, F1, etc.)
+- LLM-as-judge (Claude 3.5 Sonnet) - Optional
 
 **Statistical Rigor:**
 - Mann-Whitney U test
