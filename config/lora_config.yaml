@@ -45,7 +45,7 @@ lora:
 # Training Hyperparameters
 training:
   # Conservative settings for small datasets
-  num_epochs: 2  # Start with 2, reduce to 1 if overfitting
+  num_epochs: 3  # Start with 2, reduce to 1 if overfitting
   learning_rate: 2.0e-4
   warmup_ratio: 0.03
   weight_decay: 0.01

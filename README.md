@@ -44,6 +44,21 @@ All project documentation has been organized in [`docs/`](docs/):
 - **🎯 [Four-Baseline Evaluation](docs/implementation/FOUR_BASELINE_GUIDE.md)** - Complete evaluation guide
 - **📋 [Quick Reference](docs/reference/QUICK_REFERENCE.md)** - Common commands
 
+### 🆕 Novel Scientific Contributions (Oct 3, 2025) ⭐
+
+**Quick Start:**
+- **📖 [Complete Workflow: Data → Paper](DATA_TO_PAPER_COMPLETE_WORKFLOW.md)** - **7-week step-by-step guide** ✨
+- **🎯 [Implementation Summary](IMPLEMENTATION_SUMMARY.md)** - **5 novel contributions overview**
+
+**What's Implemented:**
+- ✅ **Diversity Dynamics Tracking** (Phase 1) - Track diversity evolution during training
+- ✅ **Pareto Frontier Analysis** (Phase 1) - Quality-diversity trade-off visualization
+- ✅ **LoRA Parameter Analysis** (Phase 2) - Understand WHERE diversity is encoded
+- ✅ **Novel Metrics** (Phase 4) - USQ, DER, Collapse Point for better evaluation
+- 🔧 **GRPO Scaffolding** (Phase 2) - Structure ready for two-phase training
+
+**See `IMPLEMENTATION_SUMMARY.md` for complete details.**
+
 ### Project Structure
 ```
 ├── docs/               # All documentation (organized by category)
