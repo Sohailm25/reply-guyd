@@ -2,12 +2,13 @@
 """
 Main Training Script for RunPod
 
-Supports both baseline and polychromic training.
+Supports baseline, polychromic, and GRPO training.
 Can be run with different configurations for ablation studies.
 
 Usage:
     python scripts/training/train_model.py --config config/experiments/baseline.yaml
     python scripts/training/train_model.py --config config/experiments/polychromic_0.3.yaml
+    python scripts/training/train_model.py --config config/experiments/grpo_from_baseline.yaml
 """
 
 import argparse
@@ -27,6 +28,7 @@ from transformers import (
     DataCollatorForLanguageModeling,
     set_seed
 )
+from peft import PeftModel
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -35,6 +37,9 @@ from src.training import (
     BaseLoRATrainer,
     PolychromicTrainer,
     PolychromicConfig,
+    GRPOTrainer,
+    GRPOConfig,
+    HeuristicRewardFunction,
     TwitterReplyDataModule
 )
 from src.training.base_trainer import setup_lora_model
@@ -190,6 +195,12 @@ def main():
         action='store_true',
         help='Resume from checkpoint if exists'
     )
+    parser.add_argument(
+        '--checkpoint',
+        type=str,
+        default=None,
+        help='Path to Phase 1 checkpoint for two-phase training (overrides config)'
+    )
     
     args = parser.parse_args()
     
@@ -208,6 +219,46 @@ def main():
     # Apply LoRA
     logger.info("Applying LoRA adapters...")
     model = setup_lora_model(model, config['lora'])
+    
+    # Load checkpoint if specified (for two-phase training)
+    # Priority: command-line arg > config file
+    checkpoint_path = args.checkpoint or config.get('training', {}).get('checkpoint_path', None)
+    
+    if checkpoint_path:
+        if os.path.exists(checkpoint_path):
+            logger.info("\n" + "="*60)
+            logger.info("LOADING PHASE 1 CHECKPOINT (Two-Phase Training)")
+            logger.info("="*60)
+            logger.info(f"  Checkpoint: {checkpoint_path}")
+            logger.info("  Purpose: Warm-start for Phase 2 (GRPO/continued training)")
+            logger.info("="*60)
+            
+            try:
+                # Load LoRA adapters from Phase 1 checkpoint
+                # This replaces the fresh LoRA adapters with trained ones
+                model = PeftModel.from_pretrained(
+                    model,
+                    checkpoint_path,
+                    is_trainable=True  # Keep trainable for Phase 2
+                )
+                
+                logger.info("✅ Checkpoint loaded successfully!")
+                logger.info("  Model now initialized with Phase 1 weights")
+                logger.info("  Ready to continue training with Phase 2 data")
+                logger.info("="*60 + "\n")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to load checkpoint: {e}")
+                logger.error("Falling back to fresh LoRA initialization")
+                logger.error("Training will start from base model\n")
+        else:
+            logger.warning("\n" + "="*60)
+            logger.warning("⚠️  CHECKPOINT PATH SPECIFIED BUT NOT FOUND")
+            logger.warning("="*60)
+            logger.warning(f"  Path: {checkpoint_path}")
+            logger.warning("  Starting from base model + fresh LoRA instead")
+            logger.warning("  This is NOT two-phase training!")
+            logger.warning("="*60 + "\n")
     
     # Setup data
     logger.info("Loading data...")
@@ -239,10 +290,46 @@ def main():
     # Setup training arguments
     training_args = setup_training_args(config)
     
-    # Choose trainer
+    # Choose trainer based on experiment type or training config
     experiment_type = config['experiment'].get('type', 'baseline')
+    use_grpo = config.get('training', {}).get('use_grpo', False) or experiment_type == 'grpo'
     
-    if experiment_type == 'polychromic':
+    if use_grpo:
+        logger.info("="*60)
+        logger.info("Using GRPO Trainer (Reinforcement Learning)")
+        logger.info("="*60)
+        
+        # Initialize reward function
+        reward_type = config.get('training', {}).get('reward_type', 'heuristic')
+        
+        if reward_type == 'heuristic':
+            logger.info("  Reward model: Heuristic ensemble")
+            reward_function = HeuristicRewardFunction()
+        else:
+            # TODO: Support learned reward model
+            logger.warning(f"  Reward type '{reward_type}' not yet supported, using heuristic")
+            reward_function = HeuristicRewardFunction()
+        
+        # GRPO configuration
+        grpo_config_dict = config.get('grpo', {})
+        grpo_config = GRPOConfig(**grpo_config_dict)
+        
+        # Create GRPO trainer
+        # Note: reference_model=None means it will create a frozen copy of the loaded model
+        # If checkpoint was loaded, reference = frozen copy of Phase 1 checkpoint ✅
+        trainer = GRPOTrainer(
+            reward_function=reward_function,
+            reference_model=None,  # Will create frozen copy of current model state
+            grpo_config=grpo_config,
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            data_collator=data_collator,
+            tokenizer=tokenizer,
+        )
+        
+    elif experiment_type == 'polychromic':
         logger.info("="*60)
         logger.info("Using Polychromic Trainer (Diversity-Aware)")
         logger.info("="*60)
@@ -282,6 +369,8 @@ def main():
     logger.info(f"Experiment: {config['experiment']['name']}")
     logger.info(f"Type: {experiment_type}")
     logger.info(f"Output: {training_args.output_dir}")
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        logger.info(f"Phase 1 Checkpoint: {checkpoint_path} ✅")
     logger.info("="*60 + "\n")
     
     try:
@@ -320,4 +409,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
