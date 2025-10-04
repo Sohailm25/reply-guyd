@@ -1,0 +1,121 @@
+# Polychromic → GRPO (Two-Phase Training) ⭐ MAIN CONTRIBUTION
+# Model 4: Diversity-aware SFT warmstart followed by GRPO refinement
+
+experiment:
+  name: "polychromic_grpo"
+  description: "Two-phase: Polychromic SFT (2500) → GRPO refinement (2440) - MAIN CONTRIBUTION"
+  type: "polychromic_grpo"
+  random_seed: 42
+
+# Phase 1: Polychromic SFT Warm-start
+phase1:
+  type: "polychromic"
+  data_file: "data/processed/train_phase1_sft.jsonl"
+  num_epochs: 2
+  learning_rate: 2.0e-4
+  output_dir: "./output/experiments/polychromic_grpo/seed_42/phase1_sft"
+  
+  # Polychromic settings for phase 1
+  polychromic:
+    enabled: true
+    diversity_weight: 0.3  # λ parameter
+    n_generations: 3
+    diversity_metric: "semantic"
+    diversity_temperature: 0.9
+    diversity_top_p: 0.9
+    max_generation_length: 100
+    diversity_encoder_model: "all-MiniLM-L6-v2"
+    cache_diversity_encoder: true
+    compute_diversity_every_n_steps: 1
+    max_examples_for_diversity: 4
+
+# Phase 2: GRPO Refinement
+phase2:
+  type: "grpo"
+  data_file: "data/processed/train_phase2_grpo.jsonl"
+  checkpoint_from_phase1: "./output/experiments/polychromic_grpo/seed_42/phase1_sft"
+  num_epochs: 3
+  learning_rate: 1.0e-4  # Lower for refinement
+  output_dir: "./output/experiments/polychromic_grpo/seed_42/phase2_grpo"
+  
+  # GRPO-specific settings
+  grpo:
+    enabled: true
+    n_generations: 4  # Generate 4 candidates per prompt
+    reward_model_type: "engagement"  # Use engagement as reward
+    kl_weight: 0.1  # KL penalty for stability
+    temperature: 0.7
+    
+    # Continue diversity tracking in GRPO
+    maintain_diversity: true
+    diversity_bonus_weight: 0.1  # Small bonus for diversity in reward
+
+model:
+  name: "Qwen3-8B"
+  path: "./"
+  quantization:
+    load_in_4bit: true
+    bnb_4bit_compute_dtype: "bfloat16"
+    bnb_4bit_quant_type: "nf4"
+    bnb_4bit_use_double_quant: true
+
+lora:
+  rank: 16
+  alpha: 16
+  dropout: 0.1
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+  bias: "none"
+  task_type: "CAUSAL_LM"
+
+training:
+  per_device_train_batch_size: 2  # Reduced for polychromic + GRPO
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 8  # Increased to maintain effective batch=16
+  
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  
+  optim: "adamw_torch"
+  lr_scheduler_type: "cosine"
+  
+  bf16: true
+  gradient_checkpointing: true
+  
+  eval_strategy: "steps"
+  eval_steps: 100  # Less frequent due to computational cost
+  logging_steps: 10
+  save_steps: 100
+  save_total_limit: 3
+  
+  early_stopping:
+    enabled: true
+    patience: 3
+    threshold: 0.01
+  
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+  greater_is_better: false
+
+data:
+  max_length: 512
+  test_file: "data/processed/test_data.jsonl"
+  enable_thinking: false
+
+output:
+  output_dir: "./output/experiments/polychromic_grpo/seed_42"
+  logging_dir: "./output/experiments/polychromic_grpo/seed_42/logs"
+
+wandb:
+  enabled: true
+  project: "qwen3-twitter-polychromic"
+  name: "polychromic-grpo-seed42"
+  tags: ["polychromic_grpo", "two-phase", "main-contribution", "seed42"]
+
