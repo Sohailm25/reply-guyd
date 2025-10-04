@@ -66,9 +66,8 @@ training:
 
 data:
   max_length: 512
-  train_split: 0.8
-  val_split: 0.1
-  test_split: 0.1
+  train_file: "data/processed/train_full_sft.jsonl"
+  test_file: "data/processed/test_data.jsonl"
   enable_thinking: false
 
 output:
