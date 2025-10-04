@@ -1,0 +1,9 @@
+{
+  "baseline_lora": {
+    "rouge": {
+      "rouge1": 0.0,
+      "rouge2": 0.0,
+      "rougeL": 0.0
+    }
+  }
+}

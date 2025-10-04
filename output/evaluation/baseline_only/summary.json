@@ -1,0 +1,34 @@
+{
+  "models_evaluated": [
+    "baseline_lora"
+  ],
+  "diversity": {
+    "baseline_lora": {
+      "self_bleu": 0.0,
+      "distinct_1": 0.0,
+      "distinct_2": 0.0,
+      "distinct_3": 0.0,
+      "semantic_diversity": 0.8800143599510193,
+      "unique_words": 0,
+      "total_words": 0,
+      "type_token_ratio": 0.0,
+      "avg_word_length": 0.0
+    }
+  },
+  "quality": {
+    "baseline_lora": {
+      "rouge": {
+        "rouge1": 0.0,
+        "rouge2": 0.0,
+        "rougeL": 0.0
+      }
+    }
+  },
+  "passk": {
+    "baseline_lora": {
+      "1": 0.66,
+      "5": 0.98,
+      "10": 1.0
+    }
+  }
+}

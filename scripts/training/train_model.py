@@ -23,6 +23,7 @@ from transformers import (
     AutoTokenizer,
     BitsAndBytesConfig,
     TrainingArguments,
+    DataCollatorForSeq2Seq,
     DataCollatorForLanguageModeling,
     set_seed
 )
@@ -147,7 +148,7 @@ def setup_training_args(config: dict) -> TrainingArguments:
         gradient_checkpointing=train_config.get('gradient_checkpointing', True),
         
         # Evaluation
-        evaluation_strategy=train_config.get('eval_strategy', 'steps'),
+        eval_strategy=train_config.get('eval_strategy', 'steps'),
         eval_steps=train_config.get('eval_steps', 50),
         logging_steps=train_config.get('logging_steps', 10),
         save_steps=train_config.get('save_steps', 50),
@@ -213,9 +214,9 @@ def main():
     data_module = TwitterReplyDataModule(
         data_path=args.data,
         tokenizer=tokenizer,
-        train_split=config['data']['train_split'],
-        val_split=config['data']['val_split'],
-        test_split=config['data']['test_split'],
+        train_split=0.9,
+        val_split=0.1,
+        test_split=0.0,
         max_length=config['data']['max_length'],
         enable_thinking=config['data'].get('enable_thinking', False),
         random_seed=seed
@@ -225,10 +226,15 @@ def main():
     eval_dataset = data_module.get_val_dataset()
     
     # Data collator
-    data_collator = DataCollatorForLanguageModeling(
+    data_collator = DataCollatorForSeq2Seq(
         tokenizer=tokenizer,
-        mlm=False
+        model=model,
+        label_pad_token_id=-100,
+        pad_to_multiple_of=8
     )
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
     
     # Setup training arguments
     training_args = setup_training_args(config)
@@ -241,7 +247,8 @@ def main():
         logger.info("Using Polychromic Trainer (Diversity-Aware)")
         logger.info("="*60)
         
-        polychromic_config = PolychromicConfig(**config['polychromic'])
+        polychromic_params = {k: v for k, v in config['polychromic'].items() if k != 'enabled'}
+        polychromic_config = PolychromicConfig(**polychromic_params)
         
         trainer = PolychromicTrainer(
             polychromic_config=polychromic_config,
