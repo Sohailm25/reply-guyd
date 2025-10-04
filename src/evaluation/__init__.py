@@ -27,7 +27,8 @@ from .statistical_tests import (
     paired_t_test,
     compute_cohens_d,
     compute_cliffs_delta,
-    bootstrap_confidence_interval
+    bootstrap_confidence_interval,
+    comprehensive_statistical_comparison
 )
 
 __all__ = [
