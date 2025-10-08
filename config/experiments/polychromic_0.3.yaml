@@ -42,7 +42,7 @@ polychromic:
   max_generation_length: 100
   diversity_encoder_model: "all-MiniLM-L6-v2"
   cache_diversity_encoder: true
-  compute_diversity_every_n_steps: 1  # Compute every step
+  compute_diversity_every_n_steps: 5  # Compute every step
   max_examples_for_diversity: 4  # Process max 4 examples per batch for diversity
 
 training:

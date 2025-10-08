@@ -1,0 +1,13 @@
+{
+  "baseline_lora": {
+    "self_bleu": 0.0,
+    "distinct_1": 0.0,
+    "distinct_2": 0.0,
+    "distinct_3": 0.0,
+    "semantic_diversity": 0.8800143599510193,
+    "unique_words": 0,
+    "total_words": 0,
+    "type_token_ratio": 0.0,
+    "avg_word_length": 0.0
+  }
+}

@@ -280,7 +280,8 @@ class PolychromicTrainer(Trainer):
         self,
         model,
         inputs,
-        return_outputs=False
+        return_outputs=False,
+        num_items_in_batch=None
     ):
         """
         Override compute_loss to implement polychromic objective.

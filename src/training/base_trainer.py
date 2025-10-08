@@ -41,7 +41,7 @@ class BaseLoRATrainer(Trainer):
         logger.info(f"  Log samples: {log_samples}")
         logger.info(f"  Num eval samples: {num_eval_samples}")
     
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         """
         Standard cross-entropy loss with enhanced logging.
         """

@@ -100,6 +100,9 @@ class TwitterReplyDataset(Dataset):
             return_tensors=None,  # Return lists, not tensors
         )
         
+        input_ids = encoding['input_ids']
+        attention_mask = encoding['attention_mask']
+        
         # Create labels (mask prompt, keep reply)
         # Find where assistant's response starts
         prompt_text = self.tokenizer.apply_chat_template(
@@ -111,20 +114,24 @@ class TwitterReplyDataset(Dataset):
         
         prompt_encoding = self.tokenizer(
             prompt_text,
+            add_special_tokens=False,
             truncation=True,
             max_length=self.max_length,
-            padding=False,
         )
         
         prompt_length = len(prompt_encoding['input_ids'])
-        
-        # Labels: -100 for prompt tokens, actual tokens for reply
-        labels = [-100] * prompt_length + encoding['input_ids'][prompt_length:]
+
+        labels = input_ids.copy()
+        assert len(labels) == len(input_ids), f"Labels length {len(labels)} != input_ids length {len(input_ids)}"
+
+        mask_length = min(prompt_length, len(labels))
+        for i in range(mask_length):
+            labels[i] = -100
         
         return {
-            'input_ids': encoding['input_ids'],
-            'attention_mask': encoding['attention_mask'],
-            'labels': labels,
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'labels': labels
         }
 
 
@@ -254,16 +261,34 @@ class TwitterReplyDataModule:
         
         # Convert back to examples
         train_examples = [
-            TwitterReplyExample(**row.to_dict())
+            TwitterReplyExample(
+                tweet_id=row['tweet_id'],
+                tweet=row['tweet'],
+                reply=row['reply'],
+                reply_likes=row['reply_likes'],
+                reply_author=row['reply_author']
+                )
             for _, row in train_df.iterrows()
         ]
         val_examples = [
-            TwitterReplyExample(**row.to_dict())
-            for _, row in val_df.iterrows()
+            TwitterReplyExample(
+                tweet_id=row['tweet_id'],
+                tweet=row['tweet'],
+                reply=row['reply'],
+                reply_likes=row['reply_likes'],
+                reply_author=row['reply_author']
+                )
+            for _, row in train_df.iterrows()
         ]
         test_examples = [
-            TwitterReplyExample(**row.to_dict())
-            for _, row in test_df.iterrows()
+            TwitterReplyExample(
+                tweet_id=row['tweet_id'],
+                tweet=row['tweet'],
+                reply=row['reply'],
+                reply_likes=row['reply_likes'],
+                reply_author=row['reply_author']
+                )
+            for _, row in train_df.iterrows()
         ]
         
         # Log statistics
