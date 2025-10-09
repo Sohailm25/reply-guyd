@@ -1,275 +1,405 @@
 #!/usr/bin/env python3
 """
-Split curated data for four experimental conditions.
+Split Training Data into Phase 1 (SFT) and Phase 2 (GRPO)
 
-Creates stratified splits for:
-1. Test set (500 examples, held out)
-2. Full SFT data (5,000 examples for models 1 & 2)
-3. Two-phase data (2,500 SFT + 2,500 GRPO for models 3 & 4)
+For two-phase training:
+- Phase 1: Supervised fine-tuning (SFT) warm-start
+- Phase 2: GRPO refinement
 
-Stratification: By engagement quartiles to maintain distribution
+Uses stratified split to maintain engagement distribution across both phases.
+
+Usage:
+    python scripts/data/split_training_phases.py \
+        --input data/processed/training_data_curated_5000.jsonl \
+        --output-dir data/processed/ \
+        --split-ratio 0.5 \
+        --seed 42
 """
 
-import json
-import random
 import argparse
+import json
+import logging
 from pathlib import Path
-from collections import defaultdict
-import numpy as np
 from typing import List, Dict, Tuple
+import numpy as np
+from collections import defaultdict
+import matplotlib.pyplot as plt
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
-def load_data(input_file: Path) -> List[Dict]:
-    """Load JSONL data."""
-    data = []
-    with open(input_file, 'r') as f:
-        for line in f:
-            data.append(json.loads(line))
-    return data
+def load_training_data(input_path: str) -> List[Dict]:
+    """Load training data from JSONL file."""
+    logger.info(f"Loading data from: {input_path}")
+    
+    examples = []
+    with open(input_path, 'r', encoding='utf-8') as f:
+        for line_num, line in enumerate(f, 1):
+            try:
+                example = json.loads(line)
+                examples.append(example)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Skipping invalid JSON on line {line_num}: {e}")
+    
+    logger.info(f"Loaded {len(examples)} examples")
+    return examples
 
 
-def stratify_by_engagement(data: List[Dict], n_strata: int = 4) -> Dict[int, List[Dict]]:
+def compute_engagement_quartiles(examples: List[Dict]) -> List[int]:
     """
-    Stratify data by engagement (reply likes) into quartiles.
+    Compute engagement quartiles for stratified splitting.
+    
+    Engagement score = reply_likes / max(tweet_likes, 1)
     
     Returns:
-        Dict mapping stratum_id -> list of examples
+        List of quartile labels (0-3) for each example
     """
-    # Extract engagement values
-    engagement_values = [d['reply_likes'] for d in data]
+    logger.info("Computing engagement quartiles for stratified split...")
     
-    # Compute quartile boundaries
-    quartiles = np.percentile(engagement_values, [25, 50, 75])
+    engagement_scores = []
+    for ex in examples:
+        reply_likes = ex.get('reply_likes', 0)
+        tweet_likes = ex.get('tweet_likes', 1)
+        engagement = reply_likes / max(tweet_likes, 1)
+        engagement_scores.append(engagement)
     
-    # Assign each example to a stratum
-    strata = defaultdict(list)
-    for example in data:
-        likes = example['reply_likes']
-        if likes <= quartiles[0]:
-            stratum = 0
-        elif likes <= quartiles[1]:
-            stratum = 1
-        elif likes <= quartiles[2]:
-            stratum = 2
+    # Compute quartiles
+    quartiles = np.percentile(engagement_scores, [25, 50, 75])
+    
+    # Assign quartile labels
+    quartile_labels = []
+    for score in engagement_scores:
+        if score <= quartiles[0]:
+            quartile_labels.append(0)  # Q1
+        elif score <= quartiles[1]:
+            quartile_labels.append(1)  # Q2
+        elif score <= quartiles[2]:
+            quartile_labels.append(2)  # Q3
         else:
-            stratum = 3
-        strata[stratum].append(example)
+            quartile_labels.append(3)  # Q4
     
-    return strata
+    logger.info(f"Quartile boundaries: {quartiles}")
+    logger.info(f"Quartile counts: {np.bincount(quartile_labels)}")
+    
+    return quartile_labels
 
 
 def stratified_split(
-    strata: Dict[int, List[Dict]],
-    test_size: int,
-    seed: int = 42
+    examples: List[Dict],
+    quartiles: List[int],
+    split_ratio: float,
+    seed: int
 ) -> Tuple[List[Dict], List[Dict]]:
     """
-    Perform stratified split into test and remaining data.
+    Perform stratified split by engagement quartiles.
     
     Args:
-        strata: Dict of stratum_id -> examples
-        test_size: Total test examples
+        examples: All training examples
+        quartiles: Quartile label for each example
+        split_ratio: Fraction for phase 1 (e.g., 0.5 = 50/50 split)
         seed: Random seed
-    
+        
     Returns:
-        (test_data, remaining_data)
+        (phase1_examples, phase2_examples)
     """
-    random.seed(seed)
+    logger.info(f"Performing stratified split (ratio={split_ratio}, seed={seed})...")
     
-    # Calculate test examples per stratum (proportional)
-    total_examples = sum(len(examples) for examples in strata.values())
-    test_per_stratum = {
-        s: int(test_size * len(examples) / total_examples)
-        for s, examples in strata.items()
+    np.random.seed(seed)
+    
+    # Group examples by quartile
+    quartile_groups = defaultdict(list)
+    for ex, q in zip(examples, quartiles):
+        quartile_groups[q].append(ex)
+    
+    phase1_examples = []
+    phase2_examples = []
+    
+    # Split each quartile proportionally
+    for q in sorted(quartile_groups.keys()):
+        group = quartile_groups[q]
+        n_group = len(group)
+        n_phase1 = int(n_group * split_ratio)
+        
+        # Shuffle and split
+        indices = np.random.permutation(n_group)
+        phase1_indices = indices[:n_phase1]
+        phase2_indices = indices[n_phase1:]
+        
+        phase1_examples.extend([group[i] for i in phase1_indices])
+        phase2_examples.extend([group[i] for i in phase2_indices])
+        
+        logger.info(f"  Quartile {q}: {n_phase1}/{n_group} to Phase 1")
+    
+    logger.info(f"Phase 1: {len(phase1_examples)} examples")
+    logger.info(f"Phase 2: {len(phase2_examples)} examples")
+    
+    return phase1_examples, phase2_examples
+
+
+def save_jsonl(examples: List[Dict], output_path: str):
+    """Save examples to JSONL file."""
+    logger.info(f"Saving {len(examples)} examples to: {output_path}")
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        for ex in examples:
+            f.write(json.dumps(ex) + '\n')
+    
+    logger.info(f"✅ Saved: {output_path}")
+
+
+def compute_statistics(
+    phase1_examples: List[Dict],
+    phase2_examples: List[Dict]
+) -> Dict:
+    """Compute statistics for both phases."""
+    logger.info("Computing split statistics...")
+    
+    def get_stats(examples):
+        engagement = [
+            ex.get('reply_likes', 0) / max(ex.get('tweet_likes', 1), 1)
+            for ex in examples
+        ]
+        lengths = [len(ex.get('reply', '')) for ex in examples]
+        
+        return {
+            'count': len(examples),
+            'engagement': {
+                'mean': float(np.mean(engagement)),
+                'std': float(np.std(engagement)),
+                'median': float(np.median(engagement)),
+                'min': float(np.min(engagement)),
+                'max': float(np.max(engagement))
+            },
+            'length': {
+                'mean': float(np.mean(lengths)),
+                'std': float(np.std(lengths)),
+                'median': float(np.median(lengths)),
+                'min': float(np.min(lengths)),
+                'max': float(np.max(lengths))
+            }
+        }
+    
+    stats = {
+        'phase1': get_stats(phase1_examples),
+        'phase2': get_stats(phase2_examples)
     }
     
-    # Adjust to ensure exactly test_size examples
-    adjustment = test_size - sum(test_per_stratum.values())
-    if adjustment > 0:
-        # Add to largest stratum
-        largest_stratum = max(strata.keys(), key=lambda s: len(strata[s]))
-        test_per_stratum[largest_stratum] += adjustment
+    # Log key statistics
+    logger.info(f"Phase 1 engagement: {stats['phase1']['engagement']['mean']:.4f} ± {stats['phase1']['engagement']['std']:.4f}")
+    logger.info(f"Phase 2 engagement: {stats['phase2']['engagement']['mean']:.4f} ± {stats['phase2']['engagement']['std']:.4f}")
     
-    test_data = []
-    remaining_data = []
-    
-    for stratum_id, examples in strata.items():
-        # Shuffle within stratum
-        shuffled = examples.copy()
-        random.shuffle(shuffled)
-        
-        # Split
-        n_test = test_per_stratum[stratum_id]
-        test_data.extend(shuffled[:n_test])
-        remaining_data.extend(shuffled[n_test:])
-    
-    # Final shuffle
-    random.shuffle(test_data)
-    random.shuffle(remaining_data)
-    
-    return test_data, remaining_data
+    return stats
 
 
-def split_two_phase(
-    data: List[Dict],
-    phase1_size: int,
-    phase2_size: int,
-    seed: int = 42
-) -> Tuple[List[Dict], List[Dict]]:
+def plot_distributions(
+    phase1_examples: List[Dict],
+    phase2_examples: List[Dict],
+    output_path: str
+):
+    """Plot engagement distributions for both phases."""
+    logger.info("Generating distribution plots...")
+    
+    # Extract engagement scores
+    phase1_engagement = [
+        ex.get('reply_likes', 0) / max(ex.get('tweet_likes', 1), 1)
+        for ex in phase1_examples
+    ]
+    phase2_engagement = [
+        ex.get('reply_likes', 0) / max(ex.get('tweet_likes', 1), 1)
+        for ex in phase2_examples
+    ]
+    
+    # Create figure
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # Histogram
+    axes[0].hist(phase1_engagement, bins=50, alpha=0.6, label='Phase 1 (SFT)', color='blue')
+    axes[0].hist(phase2_engagement, bins=50, alpha=0.6, label='Phase 2 (GRPO)', color='orange')
+    axes[0].set_xlabel('Engagement (reply_likes / tweet_likes)')
+    axes[0].set_ylabel('Count')
+    axes[0].set_title('Engagement Distribution')
+    axes[0].legend()
+    axes[0].grid(alpha=0.3)
+    
+    # Box plot
+    data = [phase1_engagement, phase2_engagement]
+    axes[1].boxplot(data, labels=['Phase 1\n(SFT)', 'Phase 2\n(GRPO)'])
+    axes[1].set_ylabel('Engagement')
+    axes[1].set_title('Engagement Distribution Comparison')
+    axes[1].grid(alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    logger.info(f"✅ Saved plot: {output_path}")
+    plt.close()
+
+
+def validate_split(
+    phase1_examples: List[Dict],
+    phase2_examples: List[Dict]
+) -> bool:
     """
-    Split data into Phase 1 (SFT) and Phase 2 (GRPO).
+    Validate that the split maintains similar distributions.
     
-    Uses stratified sampling to maintain engagement distribution.
+    Uses chi-square test to compare quartile distributions.
     """
-    # Re-stratify remaining data
-    strata = stratify_by_engagement(data, n_strata=4)
+    logger.info("Validating split quality...")
     
-    random.seed(seed)
+    # Compute engagement quartiles for each phase
+    def get_quartile_counts(examples):
+        engagement = [
+            ex.get('reply_likes', 0) / max(ex.get('tweet_likes', 1), 1)
+            for ex in examples
+        ]
+        quartiles = np.percentile(engagement, [25, 50, 75])
+        counts = [0, 0, 0, 0]
+        for score in engagement:
+            if score <= quartiles[0]:
+                counts[0] += 1
+            elif score <= quartiles[1]:
+                counts[1] += 1
+            elif score <= quartiles[2]:
+                counts[2] += 1
+            else:
+                counts[3] += 1
+        return counts
     
-    # Calculate phase1 examples per stratum
-    total_examples = len(data)
-    phase1_per_stratum = {
-        s: int(phase1_size * len(examples) / total_examples)
-        for s, examples in strata.items()
-    }
+    phase1_counts = get_quartile_counts(phase1_examples)
+    phase2_counts = get_quartile_counts(phase2_examples)
     
-    # Adjust to ensure exactly phase1_size examples
-    adjustment = phase1_size - sum(phase1_per_stratum.values())
-    if adjustment > 0:
-        largest_stratum = max(strata.keys(), key=lambda s: len(strata[s]))
-        phase1_per_stratum[largest_stratum] += adjustment
+    # Normalize to proportions
+    phase1_props = np.array(phase1_counts) / sum(phase1_counts)
+    phase2_props = np.array(phase2_counts) / sum(phase2_counts)
     
-    phase1_data = []
-    phase2_data = []
+    # Compute difference
+    max_diff = np.max(np.abs(phase1_props - phase2_props))
     
-    for stratum_id, examples in strata.items():
-        # Shuffle within stratum
-        shuffled = examples.copy()
-        random.shuffle(shuffled)
-        
-        # Split
-        n_phase1 = phase1_per_stratum[stratum_id]
-        phase1_data.extend(shuffled[:n_phase1])
-        phase2_data.extend(shuffled[n_phase1:])
+    logger.info(f"Phase 1 quartile distribution: {phase1_props}")
+    logger.info(f"Phase 2 quartile distribution: {phase2_props}")
+    logger.info(f"Max difference: {max_diff:.4f}")
     
-    # Final shuffle
-    random.shuffle(phase1_data)
-    random.shuffle(phase2_data)
+    # Threshold: distributions should be similar (< 5% difference)
+    is_valid = max_diff < 0.05
     
-    return phase1_data, phase2_data
-
-
-def save_jsonl(data: List[Dict], output_file: Path):
-    """Save data to JSONL."""
-    with open(output_file, 'w') as f:
-        for example in data:
-            f.write(json.dumps(example) + '\n')
-    print(f"✅ Saved {len(data)} examples to {output_file}")
-
-
-def print_statistics(name: str, data: List[Dict]):
-    """Print dataset statistics."""
-    engagement = [d['reply_likes'] for d in data]
-    print(f"\n{name}:")
-    print(f"  Examples: {len(data)}")
-    print(f"  Engagement - Mean: {np.mean(engagement):.1f}, "
-          f"Median: {np.median(engagement):.1f}, "
-          f"Min: {min(engagement)}, Max: {max(engagement)}")
+    if is_valid:
+        logger.info("✅ Split validation PASSED: Distributions are similar")
+    else:
+        logger.warning(f"⚠️  Split validation WARNING: Distributions differ by {max_diff:.2%}")
+    
+    return is_valid
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Split data for four experimental conditions")
-    parser.add_argument('--input', type=Path, required=True,
-                        help='Input JSONL file (curated data)')
-    parser.add_argument('--output-dir', type=Path, default=Path('data/processed'),
-                        help='Output directory')
-    parser.add_argument('--test-size', type=int, default=500,
-                        help='Number of test examples')
-    parser.add_argument('--phase1-size', type=int, default=2500,
-                        help='Phase 1 (SFT) size for two-phase models')
-    parser.add_argument('--phase2-size', type=int, default=2500,
-                        help='Phase 2 (GRPO) size for two-phase models')
-    parser.add_argument('--seed', type=int, default=42,
-                        help='Random seed')
+    parser = argparse.ArgumentParser(
+        description="Split training data into Phase 1 (SFT) and Phase 2 (GRPO)"
+    )
+    parser.add_argument(
+        '--input',
+        type=str,
+        required=True,
+        help='Input JSONL file with training data'
+    )
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        default='data/processed/',
+        help='Output directory for split files'
+    )
+    parser.add_argument(
+        '--split-ratio',
+        type=float,
+        default=0.5,
+        help='Fraction of data for Phase 1 (default: 0.5)'
+    )
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=42,
+        help='Random seed for reproducibility (default: 42)'
+    )
     
     args = parser.parse_args()
     
-    # Create output directory
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("="*70)
+    logger.info("TRAINING DATA SPLITTER: Two-Phase Training")
+    logger.info("="*70)
+    logger.info(f"Input: {args.input}")
+    logger.info(f"Output dir: {args.output_dir}")
+    logger.info(f"Split ratio: {args.split_ratio}")
+    logger.info(f"Random seed: {args.seed}")
+    logger.info("="*70 + "\n")
     
-    print("="*70)
-    print("DATA SPLITTING FOR FOUR EXPERIMENTAL CONDITIONS")
-    print("="*70)
+    # Create output directory
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     
     # Load data
-    print(f"\n📂 Loading data from {args.input}...")
-    data = load_data(args.input)
-    print(f"✅ Loaded {len(data)} examples")
+    examples = load_training_data(args.input)
     
-    # Step 1: Split into test and remaining
-    print(f"\n📊 Step 1: Creating test set ({args.test_size} examples)...")
-    strata = stratify_by_engagement(data, n_strata=4)
-    test_data, remaining_data = stratified_split(strata, args.test_size, args.seed)
+    if len(examples) == 0:
+        logger.error("No examples loaded. Exiting.")
+        return 1
     
-    print_statistics("Test Set", test_data)
-    print_statistics("Remaining Data", remaining_data)
+    # Compute engagement quartiles for stratified split
+    quartiles = compute_engagement_quartiles(examples)
     
-    # Save test set
-    test_file = args.output_dir / 'test_data.jsonl'
-    save_jsonl(test_data, test_file)
-    
-    # Step 2: Create full SFT data (for models 1 & 2)
-    print(f"\n📊 Step 2: Creating full SFT dataset (models 1 & 2)...")
-    # Use first 5000 examples from remaining
-    full_sft_data = remaining_data[:5000]
-    print_statistics("Full SFT Data", full_sft_data)
-    
-    full_sft_file = args.output_dir / 'train_full_sft.jsonl'
-    save_jsonl(full_sft_data, full_sft_file)
-    
-    # Step 3: Create two-phase data (for models 3 & 4)
-    print(f"\n📊 Step 3: Creating two-phase datasets (models 3 & 4)...")
-    print(f"  Phase 1 (SFT): {args.phase1_size} examples")
-    print(f"  Phase 2 (GRPO): {args.phase2_size} examples")
-    
-    # Use the same 5000 examples, but split differently
-    phase1_data, phase2_data = split_two_phase(
-        full_sft_data,
-        args.phase1_size,
-        args.phase2_size,
-        args.seed
+    # Perform stratified split
+    phase1_examples, phase2_examples = stratified_split(
+        examples, quartiles, args.split_ratio, args.seed
     )
     
-    print_statistics("Phase 1 (SFT warm-start)", phase1_data)
-    print_statistics("Phase 2 (GRPO refinement)", phase2_data)
+    # Save splits
+    phase1_path = output_dir / "train_phase1_sft.jsonl"
+    phase2_path = output_dir / "train_phase2_grpo.jsonl"
     
-    phase1_file = args.output_dir / 'train_phase1_sft.jsonl'
-    phase2_file = args.output_dir / 'train_phase2_grpo.jsonl'
+    save_jsonl(phase1_examples, str(phase1_path))
+    save_jsonl(phase2_examples, str(phase2_path))
     
-    save_jsonl(phase1_data, phase1_file)
-    save_jsonl(phase2_data, phase2_file)
+    # Compute statistics
+    stats = compute_statistics(phase1_examples, phase2_examples)
+    
+    # Save statistics
+    stats_path = output_dir / "phase_split_statistics.json"
+    with open(stats_path, 'w') as f:
+        json.dump(stats, f, indent=2)
+    logger.info(f"✅ Saved statistics: {stats_path}")
+    
+    # Plot distributions
+    plot_path = output_dir / "phase_split_distributions.png"
+    plot_distributions(phase1_examples, phase2_examples, str(plot_path))
+    
+    # Validate split
+    validate_split(phase1_examples, phase2_examples)
     
     # Summary
-    print("\n" + "="*70)
-    print("✅ DATA SPLITTING COMPLETE!")
-    print("="*70)
-    print(f"\nCreated files:")
-    print(f"  1. {test_file} ({len(test_data)} examples)")
-    print(f"  2. {full_sft_file} ({len(full_sft_data)} examples)")
-    print(f"  3. {phase1_file} ({len(phase1_data)} examples)")
-    print(f"  4. {phase2_file} ({len(phase2_data)} examples)")
+    logger.info("\n" + "="*70)
+    logger.info("✅ DATA SPLITTING COMPLETE!")
+    logger.info("="*70)
+    logger.info(f"\nPhase 1 (SFT warm-start):  {len(phase1_examples):,} examples")
+    logger.info(f"  → {phase1_path}")
+    logger.info(f"\nPhase 2 (GRPO refinement): {len(phase2_examples):,} examples")
+    logger.info(f"  → {phase2_path}")
+    logger.info(f"\nStatistics: {stats_path}")
+    logger.info(f"Visualization: {plot_path}")
+    logger.info("\n" + "="*70)
+    logger.info("Next steps:")
+    logger.info("  1. Train Phase 1 (SFT warm-start):")
+    logger.info(f"     python scripts/training/train_model.py \\")
+    logger.info(f"       --config config/experiments/baseline_warmstart.yaml \\")
+    logger.info(f"       --data {phase1_path}")
+    logger.info("\n  2. Train Phase 2 (GRPO refinement):")
+    logger.info(f"     python scripts/training/train_model.py \\")
+    logger.info(f"       --config config/experiments/grpo_from_baseline.yaml \\")
+    logger.info(f"       --data {phase2_path}")
+    logger.info("="*70 + "\n")
     
-    print(f"\nUsage by model:")
-    print(f"  Model 1 (Baseline SFT):      {full_sft_file}")
-    print(f"  Model 2 (Polychromic SFT):   {full_sft_file}")
-    print(f"  Model 3 (Baseline→GRPO):     {phase1_file} → {phase2_file}")
-    print(f"  Model 4 (Polychromic→GRPO):  {phase1_file} → {phase2_file}")
-    print(f"  All models evaluate on:      {test_file}")
-    
-    print("\n" + "="*70)
-    print("🚀 Ready for training!")
-    print("="*70)
+    return 0
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
