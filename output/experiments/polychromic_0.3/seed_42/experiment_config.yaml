@@ -1,0 +1,80 @@
+data:
+  enable_thinking: false
+  max_length: 512
+  test_file: data/processed/test_data.jsonl
+  train_file: data/processed/train_full_sft.jsonl
+experiment:
+  description: Polychromic training with diversity_weight=0.3 (paper's recommendation)
+  name: polychromic_0.3
+  random_seed: 42
+  type: polychromic
+lora:
+  alpha: 16
+  bias: none
+  dropout: 0.1
+  rank: 16
+  target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+  task_type: CAUSAL_LM
+model:
+  name: Qwen3-8B
+  path: ./
+  quantization:
+    bnb_4bit_compute_dtype: bfloat16
+    bnb_4bit_quant_type: nf4
+    bnb_4bit_use_double_quant: true
+    load_in_4bit: true
+output:
+  logging_dir: ./output/experiments/polychromic_0.3/seed_42/logs
+  output_dir: ./output/experiments/polychromic_0.3/seed_42
+polychromic:
+  cache_diversity_encoder: true
+  compute_diversity_every_n_steps: 5
+  diversity_encoder_model: all-MiniLM-L6-v2
+  diversity_metric: semantic
+  diversity_temperature: 0.9
+  diversity_top_p: 0.9
+  diversity_weight: 0.3
+  enabled: true
+  max_examples_for_diversity: 4
+  max_generation_length: 100
+  n_generations: 3
+training:
+  bf16: true
+  early_stopping:
+    enabled: true
+    patience: 3
+    threshold: 0.01
+  eval_steps: 100
+  eval_strategy: steps
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+  greater_is_better: false
+  learning_rate: 0.0002
+  load_best_model_at_end: true
+  logging_steps: 10
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  metric_for_best_model: eval_loss
+  num_epochs: 2
+  optim: adamw_torch
+  per_device_eval_batch_size: 4
+  per_device_train_batch_size: 2
+  save_steps: 100
+  save_total_limit: 3
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+wandb:
+  enabled: true
+  name: polychromic-0.3-seed42
+  project: qwen3-twitter-polychromic
+  tags:
+  - polychromic
+  - lambda0.3
+  - seed42
