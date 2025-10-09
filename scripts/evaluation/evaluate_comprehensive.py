@@ -67,20 +67,33 @@ def load_model(model_path: str, base_model_path: str = "./"):
     """Load a trained model with LoRA adapters."""
     logger.info(f"Loading LoRA model from: {model_path}")
     
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-    )
-    
-    # Load base model
-    base_model = AutoModelForCausalLM.from_pretrained(
-        base_model_path,
-        quantization_config=quantization_config,
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-    )
+    # Check if CUDA is available
+    if torch.cuda.is_available():
+        logger.info("CUDA detected - using 4-bit quantization")
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
+        
+        # Load base model with quantization
+        base_model = AutoModelForCausalLM.from_pretrained(
+            base_model_path,
+            quantization_config=quantization_config,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+        )
+    else:
+        logger.warning("No CUDA - loading full precision model on CPU (slower)")
+        logger.warning("For faster inference, run on GPU with CUDA")
+        
+        # Load base model without quantization for CPU
+        base_model = AutoModelForCausalLM.from_pretrained(
+            base_model_path,
+            torch_dtype=torch.float32,
+            low_cpu_mem_usage=True,
+        )
     
     # Load LoRA adapters
     model = PeftModel.from_pretrained(base_model, model_path)
@@ -98,19 +111,31 @@ def load_base_model_only(base_model_path: str = "./"):
     """Load base model without LoRA adapters for zero-shot/prompt-engineered baselines."""
     logger.info(f"Loading base model (no LoRA) from: {base_model_path}")
     
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-    )
+    # Check if CUDA is available
+    if torch.cuda.is_available():
+        logger.info("CUDA detected - using 4-bit quantization")
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
+        
+        model = AutoModelForCausalLM.from_pretrained(
+            base_model_path,
+            quantization_config=quantization_config,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+        )
+    else:
+        logger.warning("No CUDA - loading full precision model on CPU (slower)")
+        
+        model = AutoModelForCausalLM.from_pretrained(
+            base_model_path,
+            torch_dtype=torch.float32,
+            low_cpu_mem_usage=True,
+        )
     
-    model = AutoModelForCausalLM.from_pretrained(
-        base_model_path,
-        quantization_config=quantization_config,
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-    )
     model.eval()
     
     tokenizer = AutoTokenizer.from_pretrained(base_model_path)
