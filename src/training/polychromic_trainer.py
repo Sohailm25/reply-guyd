@@ -139,19 +139,16 @@ class PolychromicTrainer(Trainer):
             raise ValueError("Diversity encoder not initialized")
         
         try:
-            # Encode texts
+            # CRITICAL FIX: Always use CPU for diversity encoding to prevent GPU memory conflicts
+            # This prevents the evaluation hang that was occurring
             embeddings = self.diversity_encoder.encode(
                 texts,
                 convert_to_tensor=True,
-                device=self.args.device if self.polychromic_config.cache_diversity_encoder else 'cpu',
+                device='cpu',  # Force CPU to avoid GPU memory conflicts
                 show_progress_bar=False
             )
             
-            # Move to same device as model
-            if not self.polychromic_config.cache_diversity_encoder:
-                embeddings = embeddings.to(self.args.device)
-            
-            # Compute pairwise cosine similarities
+            # Compute pairwise cosine similarities on CPU
             similarities = F.cosine_similarity(
                 embeddings.unsqueeze(0),
                 embeddings.unsqueeze(1),
@@ -429,7 +426,7 @@ class PolychromicTrainer(Trainer):
     
     def _evaluate_diversity(self, dataloader, num_samples=50) -> Dict[str, float]:
         """
-        Evaluate diversity on validation set.
+        Evaluate diversity on validation set with timeout protection.
         
         Args:
             dataloader: Validation dataloader
@@ -438,63 +435,103 @@ class PolychromicTrainer(Trainer):
         Returns:
             Dictionary of diversity metrics
         """
-        self.model.eval()
-        all_replies = []
-        sample_count = 0
+        import signal
         
-        for batch in dataloader:
-            if sample_count >= num_samples:
-                break
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Diversity evaluation timed out")
+        
+        # Set timeout for diversity evaluation (5 minutes)
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(300)
+        
+        try:
+            self.model.eval()
+            all_replies = []
+            sample_count = 0
             
-            batch = {k: v.to(self.args.device) for k, v in batch.items()}
+            logger.info(f"Starting diversity evaluation with {num_samples} samples...")
             
-            # Generate replies for examples in this batch
-            for i in range(len(batch['input_ids'])):
+            for batch in dataloader:
                 if sample_count >= num_samples:
                     break
                 
-                try:
-                    # Find prompt
-                    labels = batch.get('labels', None)
-                    if labels is not None:
-                        valid_mask = labels[i] != -100
-                        if valid_mask.any():
-                            reply_start = valid_mask.nonzero(as_tuple=True)[0][0].item()
+                batch = {k: v.to(self.args.device) for k, v in batch.items()}
+                
+                # Generate replies for examples in this batch
+                for i in range(len(batch['input_ids'])):
+                    if sample_count >= num_samples:
+                        break
+                    
+                    try:
+                        # Find prompt
+                        labels = batch.get('labels', None)
+                        if labels is not None:
+                            valid_mask = labels[i] != -100
+                            if valid_mask.any():
+                                reply_start = valid_mask.nonzero(as_tuple=True)[0][0].item()
+                            else:
+                                reply_start = len(batch['input_ids'][i]) // 2
                         else:
-                            reply_start = len(batch['input_ids'][i]) // 2
-                    else:
-                        reply_start = int(len(batch['input_ids'][i]) * 0.7)
-                    
-                    prompt_ids = batch['input_ids'][i, :reply_start].unsqueeze(0)
-                    
-                    # Generate multiple replies
-                    replies = self.generate_multiple_replies(prompt_ids, n=5)
-                    all_replies.extend(replies)
-                    sample_count += 1
-                    
-                except Exception as e:
-                    logger.warning(f"Error in diversity evaluation: {e}")
-                    continue
-        
-        # Compute diversity metrics
-        if len(all_replies) >= 2:
-            diversity_score = self.compute_diversity_score(all_replies)
-        else:
-            diversity_score = 0.0
-        
-        # Additional metrics
-        avg_length = np.mean([len(r.split()) for r in all_replies]) if all_replies else 0
-        avg_unique_words = np.mean([
-            len(set(r.lower().split())) 
-            for r in all_replies
-        ]) if all_replies else 0
-        
-        self.model.train()
-        
-        return {
-            'diversity_score': diversity_score,
-            'avg_reply_length': avg_length,
-            'avg_unique_words': avg_unique_words,
-            'num_samples_evaluated': sample_count,
-        }
+                            reply_start = int(len(batch['input_ids'][i]) * 0.7)
+                        
+                        prompt_ids = batch['input_ids'][i, :reply_start].unsqueeze(0)
+                        
+                        # Generate multiple replies
+                        replies = self.generate_multiple_replies(prompt_ids, n=5)
+                        all_replies.extend(replies)
+                        sample_count += 1
+                        
+                        if sample_count % 10 == 0:
+                            logger.info(f"Processed {sample_count}/{num_samples} samples...")
+                        
+                    except Exception as e:
+                        logger.warning(f"Error in diversity evaluation sample {sample_count}: {e}")
+                        continue
+            
+            # Compute diversity metrics
+            if len(all_replies) >= 2:
+                logger.info(f"Computing diversity score for {len(all_replies)} replies...")
+                diversity_score = self.compute_diversity_score(all_replies)
+            else:
+                logger.warning("Not enough replies for diversity computation")
+                diversity_score = 0.0
+            
+            # Additional metrics
+            avg_length = np.mean([len(r.split()) for r in all_replies]) if all_replies else 0
+            avg_unique_words = np.mean([
+                len(set(r.lower().split())) 
+                for r in all_replies
+            ]) if all_replies else 0
+            
+            self.model.train()
+            
+            logger.info(f"Diversity evaluation completed: score={diversity_score:.3f}")
+            
+            return {
+                'diversity_score': diversity_score,
+                'avg_reply_length': avg_length,
+                'avg_unique_words': avg_unique_words,
+                'num_samples_evaluated': sample_count,
+            }
+            
+        except TimeoutError:
+            logger.error("Diversity evaluation timed out after 5 minutes")
+            self.model.train()
+            return {
+                'diversity_score': 0.0,
+                'avg_reply_length': 0.0,
+                'avg_unique_words': 0.0,
+                'num_samples_evaluated': 0,
+            }
+        except Exception as e:
+            logger.error(f"Critical error in diversity evaluation: {e}")
+            self.model.train()
+            return {
+                'diversity_score': 0.0,
+                'avg_reply_length': 0.0,
+                'avg_unique_words': 0.0,
+                'num_samples_evaluated': 0,
+            }
+        finally:
+            signal.alarm(0)  # Cancel timeout
 

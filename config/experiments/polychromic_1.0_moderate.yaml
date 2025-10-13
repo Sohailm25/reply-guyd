@@ -1,0 +1,96 @@
+# Polychromic LoRA Configuration (λ=1.0) - MODERATE
+# Balanced diversity-quality tradeoff with stronger diversity emphasis
+
+experiment:
+  name: "polychromic_1.0"
+  description: "Polychromic training with diversity_weight=1.0 (moderate - 3x stronger than baseline)"
+  type: "polychromic"
+  random_seed: 42
+
+model:
+  name: "Qwen3-8B"
+  path: "./"
+  quantization:
+    load_in_4bit: true
+    bnb_4bit_compute_dtype: "bfloat16"
+    bnb_4bit_quant_type: "nf4"
+    bnb_4bit_use_double_quant: true
+
+lora:
+  rank: 16
+  alpha: 16
+  dropout: 0.1
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+  bias: "none"
+  task_type: "CAUSAL_LM"
+
+# Polychromic-specific settings - MODERATE
+polychromic:
+  enabled: true
+  diversity_weight: 1.0  # λ parameter (3.3x higher than 0.3)
+  n_generations: 5  # Increased from 3 for better diversity estimation
+  diversity_metric: "semantic"  # "semantic", "bleu", "distinct"
+  diversity_temperature: 0.9
+  diversity_top_p: 0.9
+  max_generation_length: 100
+  diversity_encoder_model: "all-MiniLM-L6-v2"
+  cache_diversity_encoder: false  # Disable GPU caching to prevent conflicts
+  compute_diversity_every_n_steps: 5  # Less frequent to reduce evaluation load
+  max_examples_for_diversity: 4  # Reduced to prevent memory issues
+
+training:
+  num_epochs: 2
+  learning_rate: 2.0e-4
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  
+  # Reduced batch size due to generation overhead
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 8  # Effective batch=16
+  
+  optim: "adamw_torch"
+  lr_scheduler_type: "cosine"
+  
+  bf16: true
+  gradient_checkpointing: true
+  
+  eval_strategy: "steps"
+  eval_steps: 200  # Balanced: prevents hangs but maintains early stopping effectiveness
+  logging_steps: 10
+  save_steps: 200
+  save_total_limit: 3
+  
+  early_stopping:
+    enabled: true
+    patience: 3
+    threshold: 0.01
+  
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+  greater_is_better: false
+
+data:
+  max_length: 512
+  train_file: "data/processed/train_full_sft.jsonl"
+  test_file: "data/processed/test_data.jsonl"
+  enable_thinking: false
+
+output:
+  output_dir: "./output/experiments/polychromic_1.0/seed_42"
+  logging_dir: "./output/experiments/polychromic_1.0/seed_42/logs"
+
+wandb:
+  enabled: true
+  project: "qwen3-twitter-polychromic"
+  name: "polychromic-1.0-moderate-seed42"
+  tags: ["polychromic", "lambda1.0", "moderate", "seed42"]
+

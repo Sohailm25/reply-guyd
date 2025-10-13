@@ -24,3 +24,4 @@ rm /tmp/helper_scripts.tar.gz
 echo ""
 echo "✓ Done! Now on RunPod run: ./runpod_setup.sh"
 
+

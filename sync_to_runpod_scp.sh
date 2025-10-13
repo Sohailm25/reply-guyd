@@ -62,3 +62,4 @@ echo "  cd /workspace/Qwen3-8"
 echo "  ./runpod_setup.sh"
 echo ""
 
+
