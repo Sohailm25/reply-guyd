@@ -19,6 +19,27 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def ensure_nltk_data():
+    """Ensure NLTK data is downloaded."""
+    try:
+        import nltk
+        from nltk.tokenize import word_tokenize
+        # Test if punkt works
+        word_tokenize("test")
+    except LookupError:
+        logger.warning("NLTK punkt data missing - downloading...")
+        import nltk
+        nltk.download('punkt', quiet=True)
+        nltk.download('punkt_tab', quiet=True)  # For newer NLTK versions
+        logger.info("✓ NLTK punkt data downloaded")
+    except Exception as e:
+        logger.error(f"Failed to download NLTK data: {e}")
+
+
+# Download NLTK data at module import time
+ensure_nltk_data()
+
+
 def compute_self_bleu(texts: List[str], n_gram: int = 4) -> float:
     """
     Compute Self-BLEU score.

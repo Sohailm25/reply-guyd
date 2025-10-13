@@ -15,8 +15,24 @@ import numpy as np
 from typing import List, Dict, Tuple
 from scipy import stats
 import logging
+import math
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_for_json(value):
+    """Convert numpy types and handle NaN/Inf for JSON serialization."""
+    if isinstance(value, (np.integer, np.floating)):
+        value = value.item()
+    
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+    
+    if isinstance(value, (np.bool_, bool)):
+        return bool(value)
+    
+    return value
 
 
 def mann_whitney_u_test(
@@ -50,7 +66,7 @@ def mann_whitney_u_test(
         return {
             'statistic': float(statistic),
             'p_value': float(p_value),
-            'significant': p_value < 0.05
+            'significant': bool(p_value < 0.05)
         }
         
     except Exception as e:
@@ -89,7 +105,7 @@ def paired_t_test(
         return {
             'statistic': float(statistic),
             'p_value': float(p_value),
-            'significant': p_value < 0.05
+            'significant': bool(p_value < 0.05)
         }
         
     except Exception as e:
@@ -251,12 +267,12 @@ def comprehensive_statistical_comparison(
     
     results = {
         'metric_name': metric_name,
-        'baseline_mean': float(np.mean(baseline_scores)),
-        'baseline_std': float(np.std(baseline_scores)),
-        'polychromic_mean': float(np.mean(polychromic_scores)),
-        'polychromic_std': float(np.std(polychromic_scores)),
-        'improvement': float(np.mean(polychromic_scores) - np.mean(baseline_scores)),
-        'improvement_pct': float(100 * (np.mean(polychromic_scores) - np.mean(baseline_scores)) / np.mean(baseline_scores))
+        'baseline_mean': sanitize_for_json(np.mean(baseline_scores)),
+        'baseline_std': sanitize_for_json(np.std(baseline_scores)),
+        'polychromic_mean': sanitize_for_json(np.mean(polychromic_scores)),
+        'polychromic_std': sanitize_for_json(np.std(polychromic_scores)),
+        'improvement': sanitize_for_json(np.mean(polychromic_scores) - np.mean(baseline_scores)),
+        'improvement_pct': sanitize_for_json(100 * (np.mean(polychromic_scores) - np.mean(baseline_scores)) / np.mean(baseline_scores))
     }
     
     # Mann-Whitney U test
@@ -278,14 +294,16 @@ def comprehensive_statistical_comparison(
     logger.info("\nEffect Sizes:")
     cohens_d = compute_cohens_d(polychromic_scores, baseline_scores)
     cliffs_delta = compute_cliffs_delta(polychromic_scores, baseline_scores)
-    results['cohens_d'] = cohens_d
-    results['cliffs_delta'] = cliffs_delta
+    results['cohens_d'] = sanitize_for_json(cohens_d)
+    results['cliffs_delta'] = sanitize_for_json(cliffs_delta)
     
-    logger.info(f"  Cohen's d: {cohens_d:.4f}")
+    logger.info(f"  Cohen's d: {cohens_d if cohens_d is not None else 'NaN'}")
     logger.info(f"  Cliff's Delta: {cliffs_delta:.4f}")
     
     # Interpret effect size
-    if abs(cohens_d) >= 0.8:
+    if cohens_d is None or math.isnan(cohens_d):
+        effect_interpretation = "unable_to_compute"
+    elif abs(cohens_d) >= 0.8:
         effect_interpretation = "large"
     elif abs(cohens_d) >= 0.5:
         effect_interpretation = "medium"
@@ -303,14 +321,14 @@ def comprehensive_statistical_comparison(
     polychromic_ci = bootstrap_confidence_interval(polychromic_scores)
     
     results['baseline_ci'] = {
-        'mean': baseline_ci[0],
-        'lower': baseline_ci[1],
-        'upper': baseline_ci[2]
+        'mean': sanitize_for_json(baseline_ci[0]),
+        'lower': sanitize_for_json(baseline_ci[1]),
+        'upper': sanitize_for_json(baseline_ci[2])
     }
     results['polychromic_ci'] = {
-        'mean': polychromic_ci[0],
-        'lower': polychromic_ci[1],
-        'upper': polychromic_ci[2]
+        'mean': sanitize_for_json(polychromic_ci[0]),
+        'lower': sanitize_for_json(polychromic_ci[1]),
+        'upper': sanitize_for_json(polychromic_ci[2])
     }
     
     logger.info(f"  Baseline: {baseline_ci[0]:.4f} [{baseline_ci[1]:.4f}, {baseline_ci[2]:.4f}]")
