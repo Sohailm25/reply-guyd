@@ -1,7 +1,7 @@
 # Unsloth Integration Plan for Qwen3 Polychromic Training
 
 ## Purpose
-Accelerate our LoRA fine-tuning & RLHF workflows by leveraging Unsloth’s fused kernels, tokenizer optimisations, and memory-efficient adapters. The end-state is a public PR to `unslothai/unsloth` adding first-class Qwen (Qwen2/3 8B) support, plus a gated integration path in our training stack (`train_model.py`, polychromic trainer, GRPO trainer).
+Accelerate our LoRA fine-tuning & RLHF workflows by leveraging Unsloth’s fused kernels, tokenizer optimisations, and memory-efficient adapters. Unsloth already ships support for the Qwen family; our focus is to consume that path (and contribute upstream **only if** Qwen3-8B nuances are missing) while wiring a gated integration path in our training stack (`train_model.py`, polychromic trainer, GRPO trainer).
 
 ---
 
@@ -21,7 +21,7 @@ Unsloth relies on:
 3. Optional `SFTTrainer`/`DPOTrainer` wrappers (built on TRL’s trainers).
 4. Model registry: `unsloth/models/__init__.py` enumerates supported base configurations.
 
-Missing pieces for Qwen include rotary scaling params, RMSNorm epsilon, logits processing, and chat templates. We must upstream these to avoid maintaining a fork.
+According to the Unsloth docs, Qwen 1.5/2 series models are supported out of the box. We must confirm whether the specific Qwen3-8B checkpoint we use aligns with their coverage (rope scaling, tokenizer behaviour, etc.). Any gaps discovered become upstream contribution candidates; otherwise, we only adapt our codebase.
 
 ---
 
@@ -29,45 +29,38 @@ Missing pieces for Qwen include rotary scaling params, RMSNorm epsilon, logits p
 
 We’ll work in two parallel tracks:
 
-1. **Upstream Enablement (Unsloth repo)**
-   - Add Qwen model metadata (hidden size, layered dims, vocab, RMSNorm). Likely touches `unsloth/models/_model_config.py` and `fast_language_model.py`.
-   - Implement Qwen rotary embedding support (`rope_scaling`, `rope_theta`) and ensure attention kernels pick correct block size.
-   - Extend tokenizer mapping: map Qwen tokenizer (tiktoken-based) or reuse HF `AutoTokenizer`.
-   - Add regression tests: forward pass, LoRA attach, sample generate. Mirror existing tests for LLaMA/Mistral.
-   - Update docs & README (supported models table) and release notes.
+1. **Compatibility Verification / Upstream Delta (Unsloth repo, conditional)**
+   - Validate Unsloth’s current Qwen path against our Qwen3-8B checkpoint (rope config, SwiGLU variants, RMSNorm eps).
+   - If unsupported, add the minimal deltas (model metadata, rotary parameters, tokenizer tweaks) and upstream PR; otherwise document that stock Unsloth is sufficient.
+   - Ensure unit tests in Unsloth cover the Qwen3(8B) case we depend on before integration.
 
 2. **Consumption in Our Repo**
    - Feature-gate via config flag `model.use_unsloth: bool`.
-   - Abstract model loading: create `src/models/loading.py` helper calling either HF or Unsloth path (retaining quantization parity).
+   - Abstract model & tokenizer loading so we can swap between HF and Unsloth without touching trainer code.
    - Update LoRA setup to delegate to Unsloth when active (`FastLanguageModel.get_peft_model`). Maintain dropout/rank parity with current YAML.
    - Ensure trainers accept Unsloth-wrapped models (they subclass `PreTrainedModel` so `Trainer` should work, but verify gradient checkpointing, caching toggles).
-   - Handle generation: use `FastLanguageModel` helper to enable `use_cache=True` and check unsloth-specific `model._supports_flash_attn`. Keep our vectorised `generate_multiple_replies`.
-   - Provide CLI toggle so baseline/polychromic/GRPO experiments can opt-in without separate configs.
+   - Handle generation: use `FastLanguageModel` helper to enable `use_cache=True` and check Unsloth-specific attributes. Keep our vectorised `generate_multiple_replies`.
+   - Provide CLI/config toggles so baseline/polychromic/GRPO experiments can opt-in without separate configs.
 
 ---
 
 ## Detailed Task Breakdown
 
 ### Phase 0 – Research & Design (This Document)
-1. Audit Unsloth code paths for LLaMA to understand required hooks (loader, config, LoRA, train).  
-2. Extract Qwen model hyperparameters (layer counts, RMSNorm epsilon, rotary base) from HF config.  
-3. Identify compatibility gaps: e.g., Qwen uses SwiGLU gating & built-in attention scaling.  
-4. Draft upstream API changes and confirm no licensing conflicts (Apache-2.0 vs MIT).
+1. Audit Unsloth code paths for Qwen (verify Qwen3-8B coverage).  
+2. Extract any missing hyperparameters from our checkpoint and compare with Unsloth defaults.  
+3. Decide if upstream work is necessary (record findings here).
 
-### Phase 1 – Upstream Prototype (Fork of Unsloth)
-1. Fork `unslothai/unsloth`, create branch `feature/qwen-support`.  
-2. Implement Qwen config dataclass, register under `MODEL_TYPES`.  
-3. Patch `FastLanguageModel._load_model` to recognize `QwenForCausalLM`. Ensure weight tying and RMS norms re-use.  
-4. Modify LoRA helper to map Qwen attention/feed-forward module names (they differ from LLaMA).  
-5. Validate with synthetic tests:
-   - Forward pass on dummy input (no LoRA).  
-   - Attach LoRA, run `loss.backward()` to ensure gradients propagate.  
-   - Run `model.generate()` up to 32 tokens to verify KV caching and sampling speed.  
-6. Add CI test to upstream repo (likely under `tests/models/test_fast_language_model.py`).  
-7. Document new support in README & docs; open PR requesting maintainer review.
+### Phase 1 – Upstream Delta (only if required)
+1. Fork `unslothai/unsloth`, create branch `feature/qwen3-support` (or similar).  
+2. Add/adjust configuration to match Qwen3-8B specifics (rope scaling, tokenizer, LoRA target modules) if gaps exist.  
+3. Extend Unsloth test coverage for Qwen3-8B (forward pass, LoRA attach, generation).  
+4. Submit PR to Unsloth maintainers; once merged, record the minimum version/commit we depend on.
+
+*(If upstream work is unnecessary, skip directly to Phase 2 once compatibility is confirmed.)*
 
 ### Phase 2 – Integrate Unsloth Option Locally
-1. Add dependency toggle (requirements file & optional extras). Provide installation script for GPU nodes (ensuring CUDA versions align).  
+1. Add dependency toggle (requirements file & optional extras). Provide install docs for GPU nodes (ensuring CUDA versions align).  
 2. Introduce `ModelLoader` abstraction:
    ```python
    def load_base_model(config):
@@ -84,22 +77,22 @@ We’ll work in two parallel tracks:
    - Ensure gradient checkpointing toggles use `model.gradient_checkpointing_enable`.  
 5. Update polychromic & GRPO trainers:
    - Ensure `model.generate` signature matches (Unsloth extends HF model but confirm).  
-   - Re-test `use_cache` toggling; unsloth already keeps KV caches enabled, so adapt our guard logic.
+   - Re-test `use_cache` toggling; Unsloth keeps KV caches enabled, so adapt our guard logic.
 6. Wiring: CLI flag `--unsloth` or config key `model.framework: {"type": "hf"|"unsloth"}`.
 
 ### Phase 3 – Validation & Benchmarking
-1. **Unit Tests**
+1. **Unit Tests**  
    - Add tests under `tests/unit` verifying loader selects correct path and attaches LoRA without warning.  
    - Mock Unsloth objects if package absent to keep CPU CI afloat.
-2. **Integration Tests**
+2. **Integration Tests**  
    - Short polychromic training run (5 steps) on GPU verifying logs, avg generation time, loss progression.  
    - Compare throughput vs HF path (tokens/sec) using profiling script.
-3. **Regression**
+3. **Regression**  
    - Ensure baseline training & evaluation still succeed when Unsloth disabled.  
    - Validate W&B logging unaffected.
-4. **Upstream PR feedback loop**
+4. **Upstream PR feedback loop**  
    - Address maintainer review, update docs accordingly.  
-   - When merged, bump dependency commit/tag here.
+   - When merged (if applicable), bump dependency commit/tag here.
 
 ### Phase 4 – Rollout
 1. Default to HF path; keep Unsloth opt-in until full soak.  
@@ -124,19 +117,20 @@ We’ll work in two parallel tracks:
 | Unsloth kernels incompatible with Qwen attention | Training crash | Start with small sequence lengths; fall back to HF path. |
 | Divergent generation semantics (sampling differences) | Behavior drift | Run evaluation suite comparing outputs for fixed seeds. |
 | Dependency bloat on RunPod images | Longer setup | Bake Unsloth wheel into custom Docker image; update `requirements-runpod.txt`. |
-| Upstream PR delays | Blocked adoption | Maintain thin compatibility layer in repo while awaiting upstream merge. |
+| Upstream PR delays | Blocked adoption | Maintain thin compatibility layer in repo while awaiting upstream merge (if needed). |
 
 ---
 
 ## Open Questions
-1. Can Unsloth’s fused kernels coexist with our diversity encoder CPU usage without reintroducing cache stalls?  
-2. Does Unsloth expose hooks needed for GRPO reference model cloning (frozen copy)?  
-3. How does Unsloth handle Qwen’s `rope_scaling` defaults—do we need to implement custom patch?  
-4. Should we upstream polychromic-specific benchmarking scripts alongside Qwen support?
+1. Does Unsloth’s published Qwen support already include Qwen3-8B? (Gather exact version/commit references.)  
+2. Can Unsloth’s fused kernels coexist with our diversity encoder CPU usage without reintroducing cache stalls?  
+3. Does Unsloth expose hooks needed for GRPO reference model cloning (frozen copy)?  
+4. Should we upstream polychromic-specific benchmarking scripts alongside any Unsloth contributions?
 
 ---
 
 ## Next Actions
-1. Stand up fork of Unsloth & begin Phase 1 prototype.  
-2. Draft RFC for upstream maintainers outlining intended contribution.  
-3. Prepare internal benchmark harness to compare HF vs Unsloth once prototype ready.
+1. Validate Unsloth Qwen coverage against our checkpoint (catalog differences, if any).  
+2. Stand up fork of Unsloth *only if* gaps are found.  
+3. Draft RFC for internal stakeholders once integration path is confirmed.  
+4. Prepare internal benchmark harness to compare HF vs Unsloth once prototype ready.
