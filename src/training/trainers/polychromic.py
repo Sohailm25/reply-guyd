@@ -19,6 +19,7 @@ from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Optional
 import numpy as np
 from dataclasses import dataclass, asdict
+from collections import deque
 import wandb
 import logging
 import time
@@ -40,9 +41,21 @@ class PolychromicConfig:
     # Computational optimizations
     compute_diversity_every_n_steps: int = 1
     cache_diversity_encoder: bool = True
+    performance_mode: str = "standard"  # "standard" or "safe"
     
     # Batch processing for diversity
     max_examples_for_diversity: int = 4  # Process max N examples per batch
+    
+    def __post_init__(self):
+        if self.performance_mode not in {"standard", "safe"}:
+            raise ValueError(f"Unknown performance_mode '{self.performance_mode}'")
+        
+        # Safe mode trades objective strength for throughput
+        if self.performance_mode == "safe":
+            # Allow calling code to override with more conservative settings automatically
+            self.compute_diversity_every_n_steps = max(self.compute_diversity_every_n_steps, 10)
+            self.max_generation_length = min(self.max_generation_length, 80)
+            self.n_generations = min(self.n_generations, 3)
     
     def to_dict(self):
         return asdict(self)
@@ -89,6 +102,7 @@ class PolychromicTrainer(Trainer):
         self.diversity_scores_history = []
         self.quality_losses_history = []
         self.generation_times = []
+        self.example_generation_times = deque(maxlen=200)
         
         logger.info("=" * 60)
         logger.info("Initialized PolychromicTrainer")
@@ -99,6 +113,9 @@ class PolychromicTrainer(Trainer):
         logger.info(f"  Temperature: {polychromic_config.diversity_temperature}")
         logger.info(f"  Compute every N steps: {polychromic_config.compute_diversity_every_n_steps}")
         logger.info("=" * 60)
+        if polychromic_config.performance_mode == "safe":
+            logger.info("  Performance mode: SAFE (throughput-optimized)")
+            logger.info("=" * 60)
     
     def compute_diversity_score(self, texts: List[str]) -> float:
         """
@@ -140,16 +157,13 @@ class PolychromicTrainer(Trainer):
         
         try:
             # Encode texts
+            target_device = self.args.device if self.polychromic_config.cache_diversity_encoder else 'cpu'
             embeddings = self.diversity_encoder.encode(
                 texts,
                 convert_to_tensor=True,
-                device=self.args.device if self.polychromic_config.cache_diversity_encoder else 'cpu',
+                device=target_device,
                 show_progress_bar=False
             )
-            
-            # Move to same device as model
-            if not self.polychromic_config.cache_diversity_encoder:
-                embeddings = embeddings.to(self.args.device)
             
             # Compute pairwise cosine similarities
             similarities = F.cosine_similarity(
@@ -234,6 +248,7 @@ class PolychromicTrainer(Trainer):
         self,
         prompt_ids: torch.Tensor,
         n: int,
+        attention_mask: Optional[torch.Tensor] = None,
     ) -> List[str]:
         """
         Generate N diverse replies for diversity computation.
@@ -245,34 +260,59 @@ class PolychromicTrainer(Trainer):
         Returns:
             List of generated reply texts
         """
-        replies = []
+        if prompt_ids.dim() == 1:
+            prompt_ids = prompt_ids.unsqueeze(0)
         
-        for _ in range(n):
-            with torch.no_grad():
-                try:
-                    outputs = self.model.generate(
-                        input_ids=prompt_ids,
-                        max_new_tokens=self.polychromic_config.max_generation_length,
-                        temperature=self.polychromic_config.diversity_temperature,
-                        top_p=self.polychromic_config.diversity_top_p,
-                        do_sample=True,
-                        pad_token_id=self.tokenizer.pad_token_id,
-                        eos_token_id=self.tokenizer.eos_token_id,
-                    )
-                    
-                    # Decode only the generated part
-                    generated = outputs[0][len(prompt_ids[0]):]
-                    reply = self.tokenizer.decode(generated, skip_special_tokens=True).strip()
-                    
-                    # Only add non-empty replies
-                    if reply:
-                        replies.append(reply)
-                    else:
-                        replies.append("[empty]")  # Placeholder for empty generation
-                        
-                except Exception as e:
-                    logger.warning(f"Generation failed: {e}")
-                    replies.append("[generation_failed]")
+        if attention_mask is None:
+            attention_mask = torch.ones_like(prompt_ids)
+        elif attention_mask.dim() == 1:
+            attention_mask = attention_mask.unsqueeze(0)
+        
+        prompt_ids = prompt_ids.to(self.args.device)
+        attention_mask = attention_mask.to(self.args.device)
+        
+        was_training = self.model.training
+        use_cache_supported = hasattr(getattr(self.model, "config", None), "use_cache")
+        previous_use_cache = None
+        if use_cache_supported:
+            previous_use_cache = self.model.config.use_cache
+            self.model.config.use_cache = True
+        
+        if was_training:
+            self.model.eval()
+        
+        replies = []
+        prompt_length = attention_mask[0].sum().item()
+        
+        try:
+            with torch.inference_mode():
+                outputs = self.model.generate(
+                    input_ids=prompt_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=self.polychromic_config.max_generation_length,
+                    temperature=self.polychromic_config.diversity_temperature,
+                    top_p=self.polychromic_config.diversity_top_p,
+                    do_sample=True,
+                    num_return_sequences=n,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                )
+        except Exception as e:
+            logger.warning(f"Generation failed: {e}")
+            replies = ["[generation_failed]"] * n
+        else:
+            # Outputs are ordered per prompt -> reshape to (batch, n, seq_len)
+            batch_size = prompt_ids.size(0)
+            outputs = outputs.view(batch_size, n, -1)
+            for seq in outputs[0]:
+                generated = seq[int(prompt_length):]
+                reply = self.tokenizer.decode(generated, skip_special_tokens=True).strip()
+                replies.append(reply if reply else "[empty]")
+        finally:
+            if use_cache_supported and previous_use_cache is not None:
+                self.model.config.use_cache = previous_use_cache
+            if was_training:
+                self.model.train()
         
         return replies
     
@@ -322,7 +362,15 @@ class PolychromicTrainer(Trainer):
             
             # Add generation time stats if available
             if self.generation_times:
-                log_dict['train/avg_generation_time'] = np.mean(self.generation_times[-10:])
+                recent_batch_time = float(np.mean(self.generation_times[-10:]))
+                log_dict['train/avg_generation_time'] = recent_batch_time
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Avg batch generation time: {recent_batch_time:.2f}s over last {min(10, len(self.generation_times))} steps")
+            if self.example_generation_times:
+                recent_example_time = float(np.mean(self.example_generation_times))
+                log_dict['train/avg_example_generation_time'] = recent_example_time
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Avg example generation time: {recent_example_time:.2f}s (rolling)")
             
             wandb.log(log_dict, step=self.state.global_step)
         
@@ -372,10 +420,14 @@ class PolychromicTrainer(Trainer):
                 prompt_ids = input_ids[i, :reply_start].unsqueeze(0)
                 
                 # Generate N replies
+                prompt_attention = torch.ones_like(prompt_ids)
+                example_start = time.time()
                 replies = self.generate_multiple_replies(
-                    prompt_ids.to(self.args.device),
-                    n=self.polychromic_config.n_generations
+                    prompt_ids,
+                    n=self.polychromic_config.n_generations,
+                    attention_mask=prompt_attention
                 )
+                self.example_generation_times.append(time.time() - example_start)
                 
                 # Compute diversity for this example
                 if len(replies) >= 2:
@@ -468,7 +520,12 @@ class PolychromicTrainer(Trainer):
                     prompt_ids = batch['input_ids'][i, :reply_start].unsqueeze(0)
                     
                     # Generate multiple replies
-                    replies = self.generate_multiple_replies(prompt_ids, n=5)
+                    prompt_attention = torch.ones_like(prompt_ids)
+                    replies = self.generate_multiple_replies(
+                        prompt_ids,
+                        n=5,
+                        attention_mask=prompt_attention
+                    )
                     all_replies.extend(replies)
                     sample_count += 1
                     
@@ -497,4 +554,3 @@ class PolychromicTrainer(Trainer):
             'avg_unique_words': avg_unique_words,
             'num_samples_evaluated': sample_count,
         }
-

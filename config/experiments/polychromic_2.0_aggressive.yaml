@@ -41,9 +41,10 @@ polychromic:
   diversity_top_p: 0.9
   max_generation_length: 100
   diversity_encoder_model: "all-MiniLM-L6-v2"
-  cache_diversity_encoder: false  # Disable GPU caching to prevent conflicts
+  cache_diversity_encoder: true  # Set false if GPU memory is constrained
   compute_diversity_every_n_steps: 5  # Less frequent to reduce evaluation load
   max_examples_for_diversity: 4  # Reduced to prevent memory issues
+  performance_mode: "standard"  # Switch to "safe" for lower-latency fallback settings
 
 training:
   num_epochs: 2
@@ -93,4 +94,3 @@ wandb:
   project: "qwen3-twitter-polychromic"
   name: "polychromic-2.0-aggressive-seed42"
   tags: ["polychromic", "lambda2.0", "aggressive", "seed42"]
-
