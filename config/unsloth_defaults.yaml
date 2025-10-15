@@ -1,0 +1,7 @@
+unsloth:
+  enabled: false
+  load_in_4bit: true
+  dtype: null  # Use Unsloth defaults (auto based on GPU)
+  device_map: "auto"
+  rope_scaling: null
+  tokenizer_name: null

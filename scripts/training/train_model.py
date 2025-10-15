@@ -63,7 +63,7 @@ def load_config(config_path: str) -> dict:
     return config
 
 
-def setup_model_and_tokenizer(config: dict):
+def load_model_and_tokenizer(config: dict):
     """
     Setup model and tokenizer with quantization.
     
@@ -76,30 +76,74 @@ def setup_model_and_tokenizer(config: dict):
     
     model_path = config['model']['path']
     quant_config = config['model']['quantization']
+    unsloth_config = config.get('unsloth', {})
+    use_unsloth = unsloth_config.get('enabled', False)
+    max_seq_length = config.get('data', {}).get('max_length', 2048)
     
-    # Setup quantization
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=quant_config['load_in_4bit'],
-        bnb_4bit_compute_dtype=getattr(torch, quant_config['bnb_4bit_compute_dtype']),
-        bnb_4bit_quant_type=quant_config['bnb_4bit_quant_type'],
-        bnb_4bit_use_double_quant=quant_config['bnb_4bit_use_double_quant'],
-    )
+    if use_unsloth:
+        logger.info("Using Unsloth FastLanguageModel backend")
+        try:
+            from unsloth import FastLanguageModel
+        except ImportError as exc:
+            raise RuntimeError(
+                "Unsloth integration requested but the 'unsloth' package is not installed."
+            ) from exc
+        except NotImplementedError as exc:
+            raise RuntimeError(
+                "Unsloth detected no available GPU/accelerator. "
+                "Run on a CUDA-capable machine or disable `unsloth.enabled`."
+            ) from exc
+        
+        dtype_value = unsloth_config.get('dtype')
+        if isinstance(dtype_value, str):
+            if not hasattr(torch, dtype_value):
+                raise ValueError(f"Unsupported dtype '{dtype_value}' for Unsloth integration.")
+            dtype_value = getattr(torch, dtype_value)
+        
+        logger.info(f"Loading model from: {model_path}")
+        logger.info(f"Quantization: {'4bit' if quant_config['load_in_4bit'] else 'full-precision'}")
+        
+        unsloth_kwargs = {
+            "max_seq_length": max_seq_length,
+            "dtype": dtype_value,
+            "load_in_4bit": quant_config['load_in_4bit'],
+            "device_map": unsloth_config.get('device_map', 'auto'),
+            "rope_scaling": unsloth_config.get('rope_scaling', config['model'].get('rope_scaling')),
+            "tokenizer_name": unsloth_config.get('tokenizer_name'),
+            "trust_remote_code": config['model'].get('trust_remote_code', False),
+        }
+        # Remove None values to avoid overriding defaults
+        unsloth_kwargs = {k: v for k, v in unsloth_kwargs.items() if v is not None}
+        
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=model_path,
+            **unsloth_kwargs,
+        )
+        backend = "unsloth"
+    else:
+        # Setup quantization for standard HF path
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=quant_config['load_in_4bit'],
+            bnb_4bit_compute_dtype=getattr(torch, quant_config['bnb_4bit_compute_dtype']),
+            bnb_4bit_quant_type=quant_config['bnb_4bit_quant_type'],
+            bnb_4bit_use_double_quant=quant_config['bnb_4bit_use_double_quant'],
+        )
+        
+        logger.info(f"Loading model from: {model_path}")
+        logger.info(f"Quantization: {quant_config['bnb_4bit_quant_type']}")
+        
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            quantization_config=quantization_config,
+            device_map="auto",
+            attn_implementation="flash_attention_2",
+            torch_dtype=torch.bfloat16 if quant_config['bnb_4bit_compute_dtype'] == 'bfloat16' else torch.float16,
+            trust_remote_code=config['model'].get('trust_remote_code', False)
+        )
+        
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        backend = "hf"
     
-    logger.info(f"Loading model from: {model_path}")
-    logger.info(f"Quantization: {quant_config['bnb_4bit_quant_type']}")
-    
-    # Load model
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        quantization_config=quantization_config,
-        device_map="auto",
-        attn_implementation="flash_attention_2",
-        torch_dtype=torch.bfloat16 if quant_config['bnb_4bit_compute_dtype'] == 'bfloat16' else torch.float16,
-        trust_remote_code=False
-    )
-    
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
@@ -107,7 +151,31 @@ def setup_model_and_tokenizer(config: dict):
     logger.info(f"Model size: {model.num_parameters():,} parameters")
     logger.info("="*60 + "\n")
     
-    return model, tokenizer
+    return model, tokenizer, backend
+
+
+def apply_lora_adapters(model, config: dict, backend: str):
+    """Attach LoRA adapters using either standard PEFT or Unsloth helper."""
+    logger.info("Applying LoRA adapters...")
+    lora_cfg = config['lora']
+    
+    if backend == "unsloth":
+        from unsloth import FastLanguageModel
+        grad_ckpt_enabled = config['training'].get('gradient_checkpointing', True)
+        return FastLanguageModel.get_peft_model(
+            model,
+            r=lora_cfg.get('rank', 16),
+            target_modules=lora_cfg.get('target_modules', [
+                "q_proj", "k_proj", "v_proj", "o_proj",
+                "gate_proj", "up_proj", "down_proj"
+            ]),
+            lora_alpha=lora_cfg.get('alpha', 16),
+            lora_dropout=lora_cfg.get('dropout', 0.0),
+            bias=lora_cfg.get('bias', 'none'),
+            use_gradient_checkpointing="unsloth" if grad_ckpt_enabled else False,
+        )
+    
+    return setup_lora_model(model, lora_cfg)
 
 
 def setup_training_args(config: dict) -> TrainingArguments:
@@ -214,11 +282,10 @@ def main():
     logger.info(f"Random seed: {seed}")
     
     # Setup model and tokenizer
-    model, tokenizer = setup_model_and_tokenizer(config)
+    model, tokenizer, model_backend = load_model_and_tokenizer(config)
     
     # Apply LoRA
-    logger.info("Applying LoRA adapters...")
-    model = setup_lora_model(model, config['lora'])
+    model = apply_lora_adapters(model, config, model_backend)
     
     # Load checkpoint if specified (for two-phase training)
     # Priority: command-line arg > config file
