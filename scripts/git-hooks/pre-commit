@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Lightweight sanity checks before committing.
+# - Skip automatically if pytest or python deps are unavailable.
+# - Mirrors the unit test we rely on for polychromic throughput regressions.
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+PYTHON_BIN=${PYTHON_BIN:-python3}
+
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  echo "[pre-commit] Skipping tests: $PYTHON_BIN not found" >&2
+  exit 0
+fi
+
+if ! "$PYTHON_BIN" -c 'import pytest' >/dev/null 2>&1; then
+  echo "[pre-commit] Skipping tests: pytest not installed for $PYTHON_BIN" >&2
+  exit 0
+fi
+
+TEST_TARGET="tests/unit/test_polychromic_trainer.py"
+if [ ! -f "$ROOT_DIR/$TEST_TARGET" ]; then
+  echo "[pre-commit] Skipping tests: $TEST_TARGET missing" >&2
+  exit 0
+fi
+
+echo "[pre-commit] Running $TEST_TARGET"
+"$PYTHON_BIN" -m pytest "$ROOT_DIR/$TEST_TARGET"
